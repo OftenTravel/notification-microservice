@@ -1,7 +1,6 @@
-version: '3.8'
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15-alpine  # Changed back from 16 to 15
     environment:
       POSTGRES_DB: notification_service
       POSTGRES_USER: notification_user
@@ -16,6 +15,18 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   notification-service:
     build: .
     ports:
@@ -24,12 +35,59 @@ services:
       - DATABASE_URL=postgresql+asyncpg://notification_user:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/notification_service
       - MSG91_API_KEY=${MSG91_API_KEY}
       - MSG91_SENDER_ID=${MSG91_SENDER_ID}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CELERY_WORKER_CONCURRENCY=4
+      - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=True  # Fix deprecation warning
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - .:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  celery-worker:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://notification_user:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/notification_service
+      - MSG91_API_KEY=${MSG91_API_KEY}
+      - MSG91_SENDER_ID=${MSG91_SENDER_ID}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CELERY_WORKER_CONCURRENCY=${CELERY_WORKER_CONCURRENCY:-4}
+      - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=True  # Fix deprecation warning
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: celery -A app.core.celery worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-4}
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.core.celery", "inspect", "ping", "-d", "celery@$$HOSTNAME"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  celery-flower:
+    image: mher/flower:2.0.0
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FLOWER_PORT=5555
+      - FLOWER_BASIC_AUTH=${FLOWER_BASIC_AUTH:-admin:admin123}
+      - FLOWER_SLEEP_TIME=15
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - celery-worker
+
 volumes:
   postgres_data:
+  redis_data:

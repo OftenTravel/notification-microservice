@@ -5,6 +5,7 @@ import uuid
 from app.models.notification import NotificationType, NotificationStatus
 from app.repositories.notification import NotificationRepository
 from app.providers.msg91 import MSG91Provider
+from app.tasks.notification_tasks import send_notification_task
 
 
 class NotificationService:
@@ -38,11 +39,10 @@ class NotificationService:
             "status": NotificationStatus.PENDING
         })
         
-        # Send immediately if requested
+        # Send immediately if requested (now using Celery)
         if send_immediately:
-            await self.send_notification(notification.id)
-            # Refresh notification to get updated status
-            notification = await self.notification_repo.get_by_id(notification.id)
+            # Queue the task in Celery
+            send_notification_task.delay(str(notification.id))
         
         # Return response
         return {
@@ -50,68 +50,27 @@ class NotificationService:
             "type": notification.type.value,
             "status": notification.status.value,
             "recipient": notification.recipient,
-            "created_at": notification.created_at.isoformat()
+            "created_at": notification.created_at.isoformat(),
+            "message": "Notification queued for delivery" if send_immediately else "Notification created"
         }
     
     async def send_notification(self, notification_id: uuid.UUID) -> Dict[str, Any]:
-        """Send a specific notification"""
+        """Queue a specific notification for sending"""
         # Get notification
         notification = await self.notification_repo.get_by_id(notification_id)
         
         if not notification:
             raise ValueError(f"Notification {notification_id} not found")
-            
-        if notification.status != NotificationStatus.PENDING:
-            return {
-                "id": str(notification.id),
-                "status": notification.status.value,
-                "message": f"Notification already in state: {notification.status.value}"
-            }
-            
-        # Get appropriate provider
-        provider = self.providers.get(notification.type)
         
-        if not provider:
-            await self.notification_repo.update_status(
-                notification.id, 
-                NotificationStatus.FAILED
-            )
-            raise ValueError(f"No provider configured for {notification.type.value}")
+        # Queue the task in Celery
+        task = send_notification_task.delay(str(notification_id))
         
-        try:
-            # Send notification via provider
-            provider_response = await provider.send(
-                notification.recipient,
-                notification.content
-            )
-            
-            # Update notification status based on provider response
-            new_status = NotificationStatus.SENT
-            if provider_response.get("status") == "failed":
-                new_status = NotificationStatus.FAILED
-                
-            # Update notification with provider's external ID and status
-            notification = await self.notification_repo.update_status(
-                notification.id,
-                new_status,
-                external_id=provider_response.get("external_id")
-            )
-            
-            return {
-                "id": str(notification.id),
-                "status": notification.status.value,
-                "external_id": notification.external_id,
-                "sent_at": notification.sent_at.isoformat() if notification.sent_at else None,
-                "provider_response": provider_response.get("response", {})
-            }
-            
-        except Exception as e:
-            # Update notification status to failed
-            await self.notification_repo.update_status(
-                notification.id, 
-                NotificationStatus.FAILED
-            )
-            raise Exception(f"Failed to send notification: {str(e)}")
+        return {
+            "id": str(notification.id),
+            "status": notification.status.value,
+            "task_id": task.id,
+            "message": "Notification queued for delivery"
+        }
     
     async def get_notification_status(self, notification_id: uuid.UUID) -> Dict[str, Any]:
         """Get current status of a notification"""

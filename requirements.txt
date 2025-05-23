@@ -22,3 +22,8 @@ pytest-mock==3.12.0
 
 # Logging & Monitoring
 structlog==23.2.0
+
+# Queue & Task Processing
+celery==5.3.6
+redis==5.0.1
+flower==2.0.1

@@ -4,6 +4,11 @@ from contextlib import asynccontextmanager
 
 from app.core.config import settings
 from app.core.database import engine, Base
+
+# Import models to ensure they are registered with SQLAlchemy metadata
+from app.models.provider import Provider  # This import is crucial
+from app.models.notification import Notification  # This import is crucial
+
 from app.api.routes import router as api_router
 
 
