@@ -1,1 +1,1 @@
-# Task package initialization
+# Package initialization

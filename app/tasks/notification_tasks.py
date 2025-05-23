@@ -1,13 +1,16 @@
 import uuid
-from app.core.celery import celery_app
+from app.core.celery_app import celery_app
 from app.core.database import AsyncSessionLocal
 from app.repositories.notification import NotificationRepository
 from app.models.notification import NotificationStatus
 from app.providers.msg91 import MSG91Provider
 import structlog
 import asyncio
+from typing import Optional, Dict, Any
+import logging
 
 logger = structlog.get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @celery_app.task(name="send_notification", bind=True, max_retries=3)
@@ -91,3 +94,18 @@ async def _send_notification(notification_id: str):
                 NotificationStatus.FAILED
             )
             raise Exception(f"Failed to send notification: {str(e)}")
+
+
+@celery_app.task(name="app.tasks.notification_tasks.send_notification")
+def send_notification(notification_id: str):
+    """Process a notification from the queue."""
+    logger.info(f"Processing notification {notification_id}")
+    # Implement actual notification sending logic here
+    return True
+
+@celery_app.task(name="app.tasks.notification_tasks.send_instant_notification", queue="instant")
+def send_instant_notification(notification_id: str):
+    """Process an instant notification with high priority."""
+    logger.info(f"Processing instant notification {notification_id}")
+    # This is essentially the same as send_notification but in a higher priority queue
+    return send_notification(notification_id)

@@ -4,7 +4,7 @@ from typing import Optional, List, Dict, Any
 class BaseMessage(BaseModel):
     """Base class for all message types."""
     provider_id: Optional[str] = None
-    metadata: Dict[str, Any] = {}
+    meta_data: Dict[str, Any] = {}  # For template variables and other provider-specific data
 
 class SMSMessage(BaseMessage):
     """Model for SMS messages."""
@@ -17,9 +17,9 @@ class EmailMessage(BaseMessage):
     to: List[str]  # Using str instead of EmailStr for simplicity in testing
     subject: str
     body: str
+    from_email: Optional[str] = None
     cc: List[str] = []
     bcc: List[str] = []
-    from_email: Optional[str] = None
     reply_to: Optional[str] = None
     html_body: Optional[str] = None
     attachments: List[Dict[str, Any]] = []

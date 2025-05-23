@@ -1,10 +1,10 @@
 from fastapi import APIRouter
+from app.api.endpoints import notifications, templates
 
-# Create main API router
 router = APIRouter()
 
-# Import and include routers from route modules
-from app.api.routes.notifications import router as notifications_router
-router.include_router(notifications_router, prefix="/notifications", tags=["notifications"])
 
-# As you add more route modules, import and include them here
+
+# Include notifications router with appropriate tags
+router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+router.include_router(templates.router, prefix="/templates", tags=["Templates"])
