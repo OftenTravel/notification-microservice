@@ -1,34 +1,88 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 
+from app.models.messages import SMSMessage, EmailMessage, WhatsAppMessage
+from app.models.responses import NotificationResponse
+
 
 class NotificationProvider(ABC):
-    """Base abstract class for notification providers."""
+    """
+    Abstract base class for all notification providers.
+    Any concrete provider must implement these methods.
+    """
 
-    @abstractmethod
-    async def send(self, recipient: str, content: str, **kwargs) -> Dict[str, Any]:
+    def __init__(self, config: Dict[str, Any]):
         """
-        Send notification to recipient
-        
+        Initialize the provider with configuration.
+
         Args:
-            recipient: The recipient of the notification
-            content: The notification content
-            **kwargs: Additional provider-specific parameters
-            
-        Returns:
-            Dict containing status and provider-specific response
+            config: Provider-specific configuration
+        """
+        self.config = config
+        self.provider_name = self.__class__.__name__
+        self.initialize_provider()
+
+    def initialize_provider(self) -> None:
+        """
+        Initialize any connections or resources needed by the provider.
+        Override this method if needed in concrete providers.
         """
         pass
 
     @abstractmethod
-    async def check_status(self, external_id: str) -> Dict[str, Any]:
+    async def send_sms(self, message: SMSMessage) -> NotificationResponse:
         """
-        Check the delivery status of a notification
-        
+        Send an SMS message.
+
         Args:
-            external_id: Provider's reference ID for the notification
-            
+            message: The SMS message to send
+
         Returns:
-            Dict containing current status information
+            NotificationResponse: The result of the operation
+        """
+        pass
+
+    @abstractmethod
+    async def send_email(self, message: EmailMessage) -> NotificationResponse:
+        """
+        Send an email message.
+
+        Args:
+            message: The email message to send
+
+        Returns:
+            NotificationResponse: The result of the operation
+        """
+        pass
+
+    @abstractmethod
+    async def send_whatsapp(self, message: WhatsAppMessage) -> NotificationResponse:
+        """
+        Send a WhatsApp message.
+
+        Args:
+            message: The WhatsApp message to send
+
+        Returns:
+            NotificationResponse: The result of the operation
+        """
+        pass
+
+    async def validate_message(self, message: Any) -> bool:
+        """
+        Validate a message before sending.
+
+        Args:
+            message: The message to validate
+
+        Returns:
+            bool: True if valid, False otherwise
+        """
+        return True
+
+    async def close(self) -> None:
+        """
+        Close any connections or resources.
+        Override this method if needed in concrete providers.
         """
         pass
