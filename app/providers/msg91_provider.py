@@ -23,6 +23,12 @@ class MSG91Provider(NotificationProvider):
     EMAIL_API_URL = f"{BASE_URL}/email/send"
     WHATSAPP_API_URL = f"{BASE_URL}/whatsapp/flow"
     
+    # Template API endpoints - Updated with correct paths from curl examples
+    EMAIL_TEMPLATE_API_URL = f"{BASE_URL}/email/templates"  # Correct
+    EMAIL_TEMPLATE_VERSION_API_URL = f"{BASE_URL}/email/template-versions"  # May need verification
+    EMAIL_CSS_INLINE_API_URL = f"{BASE_URL}/email/services/inline-css"  # Fixed: Correct path from curl example
+    EMAIL_VALIDATE_API_URL = f"{BASE_URL}/email/validate"  # Added: New endpoint for email validation
+    
     # Default template ID for MSG91
     DEFAULT_DOMAIN = "ikmqaf.mailer91.com"
     
@@ -49,24 +55,27 @@ class MSG91Provider(NotificationProvider):
         Initialize and validate the provider configuration.
         """
         # Check for required configuration
-        if 'api_key' not in self.config:
-            raise ConfigurationException("MSG91Provider requires 'api_key' in configuration")
+        if not self.config:
+            raise ConfigurationException("MSG91Provider requires configuration")
             
-        self.api_key = self.config.get('api_key') or settings.MSG91_API_KEY
+        # Get auth key from config (using 'authkey' as per DB model)
+        self.api_key = self.config.get('authkey')
         if not self.api_key:
-            raise ConfigurationException("MSG91 API key not provided")
+            raise ConfigurationException("MSG91 auth key not provided in config")
         
         # Print the API key for debugging
-        print(f"DEBUG - USING MSG91 API KEY: '{self.api_key}'")
+        print(f"DEBUG - USING MSG91 AUTH KEY: '{self.api_key}'")
             
-        self.sender_id = self.config.get('sender_id') or settings.MSG91_SENDER_ID
+        # Get sender ID
+        self.sender_id = self.config.get('sender_id')
         if not self.sender_id:
             logger.warning("MSG91 sender ID not provided, using default")
+            self.sender_id = "NOTIFY"
             
-        # Email-specific configurations
+        # Email-specific configurations using exact keys from DB model
         self.email_domain = self.config.get('email_domain', self.DEFAULT_DOMAIN)
-        self.email_from = self.config.get('email_from', f"no-reply@{self.email_domain}")
-        self.email_from_name = self.config.get('email_from_name', 'Notification Service')
+        self.email_from = self.config.get('from_default', f"no-reply@{self.email_domain}")
+        self.email_from_name = self.config.get('from_default_name', 'Notification Service')
             
         # Initialize HTTP client with proper headers
         headers = {
@@ -165,7 +174,7 @@ class MSG91Provider(NotificationProvider):
         if not hasattr(self, 'email_from_name'):
             self.initialize_provider()
         
-        # Validate from email - use message from_email or default no-reply
+        # Validate from email - use message from_email or config's from_default
         from_email = message.from_email or self.email_from
         
         # Format recipients exactly as in the curl example
@@ -199,7 +208,7 @@ class MSG91Provider(NotificationProvider):
                 "email": from_email,
                 "name": self.email_from_name
             },
-            "domain": self.email_domain
+            "domain": self.email_domain  # Use the email_domain from config
         }
         
         # Get template_id from message or config
@@ -425,8 +434,11 @@ class MSG91Provider(NotificationProvider):
         Returns:
             Dict[str, Any]: The API response with template details
         """
+        # Use the correct URL format based on the documentation
+        url = f"{self.EMAIL_TEMPLATE_VERSION_API_URL}/{version_id}?with=template"
+        
         response = await self._make_request_with_retry(
-            url=f"{self.EMAIL_TEMPLATE_VERSION_API_URL}/{version_id}?with=template",
+            url=url,
             method="GET",
             json_data=None
         )
@@ -443,6 +455,7 @@ class MSG91Provider(NotificationProvider):
         Returns:
             str: HTML with inlined CSS
         """
+        # Fixed payload format to match curl example
         payload = {
             "html": html
         }
@@ -459,6 +472,28 @@ class MSG91Provider(NotificationProvider):
             # If inlining fails, return original HTML
             logger.warning(f"CSS inlining failed: {response.get('message')}")
             return html
+            
+    async def validate_email(self, email: str) -> Dict[str, Any]:
+        """
+        Validate an email address using MSG91's validation service.
+        
+        Args:
+            email: Email address to validate
+            
+        Returns:
+            Dict[str, Any]: Validation response
+        """
+        payload = {
+            "email": email
+        }
+        
+        response = await self._make_request_with_retry(
+            url=self.EMAIL_VALIDATE_API_URL,
+            method="POST",
+            json_data=payload
+        )
+        
+        return response
     
     async def _make_request_with_retry(
         self,

@@ -47,6 +47,7 @@ class ProviderRepository:
         Returns:
             Optional[Provider]: The provider if found
         """
+        print(f"Fetching provider with ID: {provider_id}")
         return await self.db.get(Provider, provider_id)
     
     async def get_provider_by_name(self, name: str) -> Optional[Provider]:
@@ -114,10 +115,12 @@ class ProviderRepository:
                 "is_active": True,
                 "priority": 1,
                 "config": {
-                    "api_key": api_key,
+                    # Use authkey instead of api_key to match what the database expects
+                    "authkey": api_key,
                     "sender_id": settings.MSG91_SENDER_ID,
-                    "email_from": "notifications@example.com",
-                    "email_from_name": "Notification Service"
+                    "from_default": "notifications@example.com",
+                    "from_default_name": "Notification Service",
+                    "email_domain": "ikmqaf.mailer91.com"
                 }
             },
             {
@@ -142,9 +145,9 @@ class ProviderRepository:
             else:
                 # Update existing provider with new config
                 if existing.name == "msg91":
-                    # Ensure the API key is current
+                    # Ensure the API key is current using the correct field name
                     updated_config = existing.config.copy() if existing.config else {}
-                    updated_config["api_key"] = settings.MSG91_API_KEY
+                    updated_config["authkey"] = settings.MSG91_API_KEY  # Use authkey, not api_key
                     updated_config["sender_id"] = settings.MSG91_SENDER_ID
                     
                     await self.update_provider(

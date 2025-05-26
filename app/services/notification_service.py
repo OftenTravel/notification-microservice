@@ -1,9 +1,9 @@
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 import logging
 
-from app.models.messages import SMSMessage, EmailMessage, WhatsAppMessage
+from app.models.messages import SMSMessage, EmailMessage, WhatsAppMessage, Recipient
 from app.models.responses import NotificationResponse
 from app.core.exceptions import ProviderNotFoundError, NotificationException
 from app.repositories.provider_repository import ProviderRepository
@@ -27,9 +27,26 @@ class NotificationService:
         else:
             raise ProviderNotFoundError(f"Unknown provider type: {provider_entity.name}")
     
+    # Helper method to process old and new message formats
+    def _process_message(self, message: Union[SMSMessage, EmailMessage, WhatsAppMessage]):
+        """Process message to ensure it has the correct structure."""
+        # For SMS - backward compatibility
+        if isinstance(message, SMSMessage) and not message.recipients and hasattr(message, 'recipient'):
+            message.recipients = [Recipient(phone=message.recipient)]
+            
+        # For Email - backward compatibility
+        if isinstance(message, EmailMessage) and not message.recipients and message.to:
+            message.recipients = [Recipient(email=email) for email in message.to]
+            
+        # For WhatsApp - backward compatibility
+        if isinstance(message, WhatsAppMessage) and not message.recipients and hasattr(message, 'recipient'):
+            message.recipients = [Recipient(phone=message.recipient)]
+            
+        return message
+    
     async def send_email(
         self, 
-        message: EmailMessage, 
+        message: EmailMessage,
         provider_id: Optional[uuid.UUID] = None,
         service_id: Optional[uuid.UUID] = None,
         priority: Optional[str] = None,
@@ -38,12 +55,17 @@ class NotificationService:
         """Send an email message."""
         if not db:
             raise ValueError("Database session is required")
+        
+        # Process message to ensure proper structure    
+        message = self._process_message(message)
             
         repo = ProviderRepository(db)
         
-        # Get provider by UUID or fall back to default by name
+        # Get provider by UUID or fall back to message provider_id or default by name
         if provider_id:
             provider_entity = await repo.get_provider(provider_id)
+        elif message.provider_id:
+            provider_entity = await repo.get_provider(message.provider_id)
         else:
             provider_entity = await repo.get_provider_by_name(self.default_provider_name)
         
@@ -73,11 +95,16 @@ class NotificationService:
         if not db:
             raise ValueError("Database session is required")
             
+        # Process message to ensure proper structure    
+        message = self._process_message(message)
+            
         repo = ProviderRepository(db)
         
-        # Get provider by UUID or fall back to default by name
+        # Get provider by UUID or fall back to message provider_id or default by name
         if provider_id:
             provider_entity = await repo.get_provider(provider_id)
+        elif message.provider_id:
+            provider_entity = await repo.get_provider_by_name(message.provider_id)
         else:
             provider_entity = await repo.get_provider_by_name(self.default_provider_name)
         
@@ -107,11 +134,16 @@ class NotificationService:
         if not db:
             raise ValueError("Database session is required")
             
+        # Process message to ensure proper structure    
+        message = self._process_message(message)
+            
         repo = ProviderRepository(db)
         
-        # Get provider by UUID or fall back to default by name
+        # Get provider by UUID or fall back to message provider_id or default by name
         if provider_id:
             provider_entity = await repo.get_provider(provider_id)
+        elif message.provider_id:
+            provider_entity = await repo.get_provider_by_name(message.provider_id)
         else:
             provider_entity = await repo.get_provider_by_name(self.default_provider_name)
         

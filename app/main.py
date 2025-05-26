@@ -32,6 +32,10 @@ async def lifespan(app: FastAPI):
     from app.core.database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
         repo = ProviderRepository(db)
+        
+        # Always update MSG91 provider auth key with correct field name
+        #await repo.update_msg91_auth_key()
+        
         mock_provider = await repo.get_provider_by_name("mock")
         if not mock_provider:
             print("Seeding mock provider for testing...")

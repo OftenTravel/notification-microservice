@@ -4,7 +4,6 @@ from typing import Dict, Any, List, Optional
 import logging
 
 from app.core.database import get_db
-from app.core.config import settings
 from app.repositories.provider_repository import ProviderRepository
 from app.providers.msg91_provider import MSG91Provider
 
@@ -22,9 +21,9 @@ async def get_msg91_provider(db: AsyncSession = Depends(get_db)):
             detail="MSG91 provider not configured"
         )
     
-    # Print the API key from the provider for debugging
-    api_key = provider_entity.config.get("api_key")
-    print(f"PROVIDER DB RECORD - Using MSG91_API_KEY: '{api_key}'")
+    # Print the auth key from the provider for debugging
+    auth_key = provider_entity.config.get("authkey")
+    print(f"PROVIDER DB RECORD - Using MSG91_AUTH_KEY: '{auth_key}'")
     
     # Initialize MSG91 provider with database config
     provider = MSG91Provider(provider_entity.config)
@@ -49,14 +48,8 @@ async def create_email_template(
     - **body**: HTML body with variables like ##name##
     """
     try:
-        # Initialize MSG91 provider with proper configuration
-        provider = MSG91Provider({
-            "api_key": settings.MSG91_API_KEY,
-            "sender_id": settings.MSG91_SENDER_ID,
-            "auth_header_name": "authkey",  # Changed: MSG91 uses "authkey", not "Authorization"
-        })
-        
-        await provider.initialize_provider()  # Make sure provider is properly initialized
+        # Get provider from database instead of hardcoded config
+        provider = await get_msg91_provider(db)
         
         # Create the template
         response = await provider.create_email_template(
@@ -144,11 +137,8 @@ async def inline_css_for_email(
     - **html**: HTML content with CSS
     """
     try:
-        # Initialize MSG91 provider
-        provider = MSG91Provider({
-            "api_key": settings.MSG91_API_KEY,
-            "sender_id": settings.MSG91_SENDER_ID,
-        })
+        # Get provider from database instead of hardcoded config
+        provider = await get_msg91_provider(db)
         
         # Inline CSS
         result = await provider.inline_email_css(html)
