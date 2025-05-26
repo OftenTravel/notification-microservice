@@ -3,7 +3,7 @@ from app.core.celery_app import celery_app
 from app.core.database import AsyncSessionLocal
 from app.repositories.notification import NotificationRepository
 from app.models.notification import NotificationStatus
-from app.providers.msg91 import MSG91Provider
+from app.providers.msg91_provider import MSG91Provider
 import structlog
 import asyncio
 from typing import Optional, Dict, Any

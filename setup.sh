@@ -3,7 +3,7 @@ set -e
 
 # Create directory structure
 echo "Creating directory structure..."
-mkdir -p app/core app/models app/providers app/repositories app/services app/api/routes tests
+mkdir -p app/core app/models app/providers app/repositories app/services app/api/v1 tests
 
 # Initialize files with empty content to create proper structure
 touch app/__init__.py
@@ -13,7 +13,8 @@ touch app/providers/__init__.py
 touch app/repositories/__init__.py
 touch app/services/__init__.py
 touch app/api/__init__.py
-touch app/api/routes/__init__.py
+touch app/api/v1/__init__.py
+
 
 # Create alembic directory for migrations
 mkdir -p alembic/versions

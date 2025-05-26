@@ -4,7 +4,7 @@ import uuid
 
 from app.models.notification import NotificationType, NotificationStatus
 from app.repositories.notification import NotificationRepository
-from app.providers.msg91 import MSG91Provider
+from app.providers.msg91_provider import MSG91Provider
 from app.tasks.notification_tasks import send_notification_task
 
 

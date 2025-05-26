@@ -1,109 +1,130 @@
 from typing import Dict, Any, Optional, Union
-from fastapi import BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 import logging
 
-from app.providers.registry import ProviderRegistry
 from app.models.messages import SMSMessage, EmailMessage, WhatsAppMessage
 from app.models.responses import NotificationResponse
 from app.core.exceptions import ProviderNotFoundError, NotificationException
 from app.repositories.provider_repository import ProviderRepository
-from app.models.notification import NotificationPriority
+from app.providers.msg91_provider import MSG91Provider
+from app.providers.mock_provider import MockProvider
 
 logger = logging.getLogger(__name__)
 
 class NotificationService:
-    """
-    Service for sending notifications using registered providers.
-    """
+    """Service for sending notifications using database-managed providers."""
     
-    def __init__(self, default_provider_id: Optional[str] = None):
-        self.default_provider_id = default_provider_id or "msg91"
+    def __init__(self, default_provider_name: Optional[str] = "mock"):
+        self.default_provider_name = default_provider_name
     
-    async def _get_provider_config(self, db: AsyncSession, provider_id: str) -> Dict[str, Any]:
-        """Get provider configuration from database."""
-        repo = ProviderRepository(db)
-        provider_entity = await repo.get_provider_by_name(provider_id)
-        
-        if not provider_entity or not provider_entity.config:
-            return {}
+    async def _get_provider_instance(self, provider_entity):
+        """Create provider instance based on provider name."""
+        if provider_entity.name == "msg91":
+            return MSG91Provider(provider_entity.config)
+        elif provider_entity.name == "mock":
+            return MockProvider(provider_entity.config)
+        else:
+            raise ProviderNotFoundError(f"Unknown provider type: {provider_entity.name}")
+    
+    async def send_email(
+        self, 
+        message: EmailMessage, 
+        provider_id: Optional[uuid.UUID] = None,
+        service_id: Optional[uuid.UUID] = None,
+        priority: Optional[str] = None,
+        db: Optional[AsyncSession] = None
+    ) -> NotificationResponse:
+        """Send an email message."""
+        if not db:
+            raise ValueError("Database session is required")
             
-        return provider_entity.config
+        repo = ProviderRepository(db)
+        
+        # Get provider by UUID or fall back to default by name
+        if provider_id:
+            provider_entity = await repo.get_provider(provider_id)
+        else:
+            provider_entity = await repo.get_provider_by_name(self.default_provider_name)
+        
+        if not provider_entity:
+            raise ProviderNotFoundError(f"Provider not found")
+        
+        if not provider_entity.is_active:
+            raise ProviderNotFoundError(f"Provider '{provider_entity.name}' is not active")
+            
+        # Check if provider supports email
+        if not provider_entity.supports_type('email'):
+            raise ProviderNotFoundError(f"Provider '{provider_entity.name}' does not support email messages")
+        
+        # Create provider instance
+        provider = await self._get_provider_instance(provider_entity)
+        return await provider.send_email(message)
     
     async def send_sms(
         self, 
         message: SMSMessage, 
-        provider_id: Optional[str] = None,
+        provider_id: Optional[uuid.UUID] = None,
         service_id: Optional[uuid.UUID] = None,
         priority: Optional[str] = None,
         db: Optional[AsyncSession] = None
     ) -> NotificationResponse:
         """Send an SMS message."""
-        # Use provider from query param, message body, or default
-        provider_id = provider_id or getattr(message, 'provider_id', None) or self.default_provider_id
-        
-        # Log diagnostic information
-        logger.info(f"Sending SMS with provider: {provider_id}, priority: {priority}")
-        
-        # Get provider config from database if db session is provided
-        config = {}
-        if db:
-            config = await self._get_provider_config(db, provider_id)
-        
-        provider = ProviderRegistry.get_provider(provider_id, config)
-        if not provider:
-            raise ProviderNotFoundError(f"Provider '{provider_id}' not found")
+        if not db:
+            raise ValueError("Database session is required")
             
+        repo = ProviderRepository(db)
+        
+        # Get provider by UUID or fall back to default by name
+        if provider_id:
+            provider_entity = await repo.get_provider(provider_id)
+        else:
+            provider_entity = await repo.get_provider_by_name(self.default_provider_name)
+        
+        if not provider_entity:
+            raise ProviderNotFoundError(f"Provider not found")
+        
+        if not provider_entity.is_active:
+            raise ProviderNotFoundError(f"Provider '{provider_entity.name}' is not active")
+            
+        # Check if provider supports SMS
+        if not provider_entity.supports_type('sms'):
+            raise ProviderNotFoundError(f"Provider '{provider_entity.name}' does not support SMS messages")
+        
+        # Create provider instance
+        provider = await self._get_provider_instance(provider_entity)
         return await provider.send_sms(message)
-    
-    async def send_email(
-        self, 
-        message: EmailMessage, 
-        provider_id: Optional[str] = None,
-        priority: Optional[str] = None,
-        db: Optional[AsyncSession] = None
-    ) -> NotificationResponse:
-        """Send an email message."""
-        # Use provider from query param, message body, or default
-        provider_id = provider_id or getattr(message, 'provider_id', None) or self.default_provider_id
-        
-        # Log diagnostic information
-        logger.info(f"Sending email with provider: {provider_id}, priority: {priority}")
-        
-        # Get provider config from database if db session is provided
-        config = {}
-        if db:
-            config = await self._get_provider_config(db, provider_id)
-        
-        provider = ProviderRegistry.get_provider(provider_id, config)
-        if not provider:
-            raise ProviderNotFoundError(f"Provider '{provider_id}' not found")
-            
-        return await provider.send_email(message)
     
     async def send_whatsapp(
         self, 
         message: WhatsAppMessage, 
-        provider_id: Optional[str] = None,
+        provider_id: Optional[uuid.UUID] = None,
         service_id: Optional[uuid.UUID] = None,
         priority: Optional[str] = None,
         db: Optional[AsyncSession] = None
     ) -> NotificationResponse:
         """Send a WhatsApp message."""
-        # Use provider from query param, message body, or default
-        provider_id = provider_id or getattr(message, 'provider_id', None) or self.default_provider_id
-        
-        # Log diagnostic information
-        logger.info(f"Sending WhatsApp with provider: {provider_id}, priority: {priority}")
-        
-        # Get provider config from database if db session is provided
-        config = {}
-        if db:
-            config = await self._get_provider_config(db, provider_id)
-        
-        provider = ProviderRegistry.get_provider(provider_id, config)
-        if not provider:
-            raise ProviderNotFoundError(f"Provider '{provider_id}' not found")
+        if not db:
+            raise ValueError("Database session is required")
             
+        repo = ProviderRepository(db)
+        
+        # Get provider by UUID or fall back to default by name
+        if provider_id:
+            provider_entity = await repo.get_provider(provider_id)
+        else:
+            provider_entity = await repo.get_provider_by_name(self.default_provider_name)
+        
+        if not provider_entity:
+            raise ProviderNotFoundError(f"Provider not found")
+        
+        if not provider_entity.is_active:
+            raise ProviderNotFoundError(f"Provider '{provider_entity.name}' is not active")
+            
+        # Check if provider supports WhatsApp
+        if not provider_entity.supports_type('whatsapp'):
+            raise ProviderNotFoundError(f"Provider '{provider_entity.name}' does not support WhatsApp messages")
+        
+        # Create provider instance
+        provider = await self._get_provider_instance(provider_entity)
         return await provider.send_whatsapp(message)

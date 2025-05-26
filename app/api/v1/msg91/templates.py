@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.repositories.provider_repository import ProviderRepository
 from app.providers.msg91_provider import MSG91Provider
 
-router = APIRouter()
+router = APIRouter(tags=["MSG91-Templates"])
 logger = logging.getLogger(__name__)
 
 async def get_msg91_provider(db: AsyncSession = Depends(get_db)):
@@ -162,4 +162,3 @@ async def inline_css_for_email(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to inline CSS: {str(e)}"
         )
-

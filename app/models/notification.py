@@ -37,7 +37,8 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    service_id = Column(UUID(as_uuid=True), ForeignKey("service_users.id"), nullable=False)
+    # Make service_id nullable for now to avoid the relationship error
+    service_id = Column(UUID(as_uuid=True), nullable=True)  # Changed: removed ForeignKey
     type = Column(SQLAEnum(NotificationType), nullable=False)
     priority = Column(SQLAEnum(NotificationPriority), default=NotificationPriority.NORMAL)
     status = Column(SQLAEnum(NotificationStatus), default=NotificationStatus.PENDING)
@@ -58,8 +59,9 @@ class Notification(Base):
     failed_at = Column(DateTime, nullable=True)  # For failure tracking
     external_id = Column(String(255), nullable=True)  # Provider's reference ID
 
-    # Relationship
-    service = relationship("ServiceUser")
+    # Remove the relationship that's causing the issue
+    # service = relationship("ServiceUser")
+    
     # Add index for common queries
     __table_args__ = (
         Index('idx_notifications_status', status),

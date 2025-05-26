@@ -8,7 +8,6 @@ from app.core.database import engine, Base, get_db
 from app.models.messages import SMSMessage, EmailMessage, WhatsAppMessage
 from app.models.responses import NotificationResponse, NotificationStatus
 from app.services.notification_service import NotificationService
-from app.providers.registry import ProviderRegistry
 from app.core.exceptions import NotificationException, ProviderNotFoundError
 from app.repositories.provider_repository import ProviderRepository
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,8 +28,26 @@ async def lifespan(app: FastAPI):
         # await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     
-    # Seeding has been disabled as per request
-    # To manually seed providers, use the dedicated API endpoint
+    # Seed mock provider for testing if it doesn't exist
+    from app.core.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        repo = ProviderRepository(db)
+        mock_provider = await repo.get_provider_by_name("mock")
+        if not mock_provider:
+            print("Seeding mock provider for testing...")
+            await repo.create_provider({
+                "name": "mock",
+                "supported_types": ["sms", "email", "whatsapp"],
+                "is_active": True,
+                "priority": 10,
+                "config": {
+                    "success_rate": 0.9,
+                    "delay_ms": 500
+                }
+            })
+            print("Mock provider seeded successfully")
+        else:
+            print(f"Mock provider already exists with UUID: {mock_provider.id}")
     
     yield
     # Shutdown logic (if needed)
@@ -68,8 +85,8 @@ async def health_check():
     }
 
 
-# Create notification service instance
-notification_service = NotificationService(default_provider_id="mock")
+# Create notification service instance with correct parameter name
+notification_service = NotificationService(default_provider_name="mock")
 
 
 @app.get("/", tags=["Root"])

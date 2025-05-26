@@ -92,24 +92,29 @@ class ProviderRepository:
         result = await self.db.execute(query)
         return result.scalars().all()
     
-    async def seed_default_providers(self) -> List[Provider]:
-        """
-        Seed default providers if not exist.
+    async def list_providers(self, active_only: bool = False) -> List[Provider]:
+        """List all providers."""
+        query = select(Provider)
+        if active_only:
+            query = query.where(Provider.is_active == True)
+        query = query.order_by(Provider.priority, Provider.name)
         
-        Returns:
-            List[Provider]: List of created/existing providers
-        """
-        # Print the actual API key for debugging
-        print(f"SEEDING - Using MSG91_API_KEY: '{settings.MSG91_API_KEY}'")
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+    
+    async def seed_default_providers(self) -> List[Provider]:
+        """Seed default providers if not exist."""
+        api_key = settings.MSG91_API_KEY
+        logger.info(f"Seeding providers...")
         
         default_providers = [
             {
                 "name": "msg91",
-                "type": "all",
+                "supported_types": ["sms", "email", "whatsapp"],
                 "is_active": True,
                 "priority": 1,
                 "config": {
-                    "api_key": settings.MSG91_API_KEY,  # Use the actual API key from settings
+                    "api_key": api_key,
                     "sender_id": settings.MSG91_SENDER_ID,
                     "email_from": "notifications@example.com",
                     "email_from_name": "Notification Service"
@@ -117,9 +122,9 @@ class ProviderRepository:
             },
             {
                 "name": "mock",
-                "type": "all",
+                "supported_types": ["sms", "email", "whatsapp"],
                 "is_active": True,
-                "priority": 10,  # Lower priority (higher number)
+                "priority": 10,
                 "config": {
                     "success_rate": 0.9,
                     "delay_ms": 500
