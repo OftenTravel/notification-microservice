@@ -1,15 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
-from uuid import UUID
 
 from app.core.database import get_db
 from app.models.messages import SMSMessage, EmailMessage, WhatsAppMessage
 from app.models.responses import NotificationResponse
 from app.services.notification_service import NotificationService
 from app.core.exceptions import NotificationException, ProviderNotFoundError
-from app.models.service_user import ServiceUser
-
 
 router = APIRouter()
 

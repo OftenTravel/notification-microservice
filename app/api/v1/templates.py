@@ -162,3 +162,4 @@ async def inline_css_for_email(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to inline CSS: {str(e)}"
         )
+

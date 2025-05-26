@@ -18,7 +18,7 @@ from app.models.provider import Provider
 from app.models.notification import Notification
 from app.models.delivery_attempt import DeliveryAttempt
 
-from app.api.routes import router as api_router
+from app.api.api import api_router
 
 
 @asynccontextmanager
