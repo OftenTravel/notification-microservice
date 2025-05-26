@@ -90,6 +90,17 @@ class MockProvider(NotificationProvider):
         Returns:
             NotificationResponse: The result of the operation
         """
+        # Force failure for testing if recipient contains 'fail'
+        if message.to and 'fail' in message.to[0].lower():
+            await asyncio.sleep(0.5)  # Simulate some processing
+            return NotificationResponse(
+                success=False,
+                status=NotificationStatus.FAILED,
+                provider_name=self.provider_name,
+                error_message="Mock delivery failed for testing retries",
+                provider_response={"mock": True, "message_type": "email", "error": "Simulated failure for retry testing"}
+            )
+        
         success = await self._simulate_sending()
         return await self._create_response(success, "email")
     

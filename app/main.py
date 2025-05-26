@@ -33,9 +33,6 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         repo = ProviderRepository(db)
         
-        # Always update MSG91 provider auth key with correct field name
-        #await repo.update_msg91_auth_key()
-        
         mock_provider = await repo.get_provider_by_name("mock")
         if not mock_provider:
             print("Seeding mock provider for testing...")
@@ -78,26 +75,15 @@ app.add_middleware(
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
-
-@app.get("/", tags=["Health Check"])
-async def health_check():
-    return {
-        "status": "healthy",
-        "service": settings.PROJECT_NAME,
-        "version": "0.1.0",
-        "documentation": "/docs or /redoc",
-    }
-
-
 # Create notification service instance with correct parameter name
 notification_service = NotificationService(default_provider_name="mock")
 
 
-@app.get("/", tags=["Root"])
+@app.get("/", tags=["System"])
 async def root():
-    """Root endpoint that returns service information."""
+    """Root endpoint that returns service information and basic health status."""
     return {
-        "service": "Notification Microservice",
+        "service": settings.PROJECT_NAME,
         "version": "0.1.0",
         "status": "operational",
         "documentation": "/docs or /redoc",

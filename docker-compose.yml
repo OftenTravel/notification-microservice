@@ -2,7 +2,6 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      # Directly create the user and database we need through environment variables
       POSTGRES_USER: notification_user
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password}
       POSTGRES_DB: notification_service
@@ -12,9 +11,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U notification_user -d notification_service"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      interval: 5s
+      retries: 10
+      start_period: 5s
 
   redis:
     image: redis:7-alpine
@@ -22,16 +21,11 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
 
   notification-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     ports:
       - "8000:8000"
     environment:
@@ -40,59 +34,55 @@ services:
       - MSG91_SENDER_ID=${MSG91_SENDER_ID}
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - CELERY_WORKER_CONCURRENCY=4
-      - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=True  # Fix deprecation warning
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
+        condition: service_started
     volumes:
       - .:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   celery-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://notification_user:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/notification_service
-      - MSG91_API_KEY=${MSG91_API_KEY}
-      - MSG91_SENDER_ID=${MSG91_SENDER_ID}
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - CELERY_WORKER_CONCURRENCY=${CELERY_WORKER_CONCURRENCY:-4}
-      - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=True  # Fix deprecation warning
-    restart: unless-stopped
+    build: .
+    command: celery -A app.core.celery_app worker --loglevel=DEBUG -Q notifications,instant --hostname=worker1@%h
+    hostname: celery-worker-1
+    volumes:
+      - .:/app
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-    volumes:
-      - .:/app
-    command: celery -A app.core.celery worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-4}
-    healthcheck:
-      test: ["CMD", "celery", "-A", "app.core.celery", "inspect", "ping", "-d", "celery@$$HOSTNAME"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
+        condition: service_started
+    restart: on-failure
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://notification_user:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/notification_service
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MSG91_API_KEY=${MSG91_API_KEY}
+      - MSG91_SENDER_ID=${MSG91_SENDER_ID}
+      - PYTHONPATH=/app
+      - CELERY_LOG_LEVEL=DEBUG
 
-  celery-flower:
-    image: mher/flower:2.0.0
+  flower:
+    build: .
+    command: celery -A app.core.celery_app flower --port=5555 --conf=/app/flowerconfig.py
     ports:
-      - "5555:5555"
+      - "5556:5555"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - FLOWER_PORT=5555
-      - FLOWER_BASIC_AUTH=${FLOWER_BASIC_AUTH:-admin:admin123}
-      - FLOWER_SLEEP_TIME=15
-    restart: unless-stopped
-    depends_on:
-      - redis
-      - celery-worker
+      - FLOWER_UNAUTHENTICATED_API=true
+    volumes:
+      - .:/app
+      - flower_data:/data
 
 volumes:
   postgres_data:
   redis_data:
+  flower_data:

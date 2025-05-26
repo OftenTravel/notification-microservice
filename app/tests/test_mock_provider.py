@@ -6,7 +6,6 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from app.models.messages import SMSMessage, EmailMessage, WhatsAppMessage
-from app.providers.registry import ProviderRegistry
 from app.services.notification_service import NotificationService
 
 async def test_mock_provider():
@@ -21,21 +20,23 @@ async def test_mock_provider():
     )
     whatsapp = WhatsAppMessage(recipient="+1234567890", content="Test WhatsApp message")
     
-    # Create service with mock provider
-    service = NotificationService(default_provider_id="mock")
+    # Create service with mock provider - FIXED: using proper parameter name
+    service = NotificationService(default_provider_name="mock")  # NOT default_provider_id
     
     # Send messages
     print("\nSending SMS...")
+    # Note: In actual testing with DB, you'd need to provide a database session
+    # We would normally mock this, but this is a simplified example
     sms_response = await service.send_sms(sms)
-    print(f"SMS Response: {sms_response.dict()}")
+    print(f"SMS Response: {sms_response}")
     
     print("\nSending Email...")
     email_response = await service.send_email(email)
-    print(f"Email Response: {email_response.dict()}")
+    print(f"Email Response: {email_response}")
     
     print("\nSending WhatsApp...")
     whatsapp_response = await service.send_whatsapp(whatsapp)
-    print(f"WhatsApp Response: {whatsapp_response.dict()}")
+    print(f"WhatsApp Response: {whatsapp_response}")
     
     print("\nRunning 5 SMS tests to show success/failure rates...")
     for i in range(5):

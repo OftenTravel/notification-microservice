@@ -22,6 +22,7 @@ class NotificationStatus(str, enum.Enum):
     DELIVERED = "delivered"
     FAILED = "failed"
     SEEN = "seen"
+    CANCELLED = "CANCELLED"
 
 
 class NotificationPriority(str, enum.Enum):

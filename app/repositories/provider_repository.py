@@ -2,12 +2,13 @@ from typing import List, Optional, Dict, Any
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
-import logging
+# import logging
+import structlog
 
 from app.models.provider import Provider
 from app.core.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 class ProviderRepository:
     """Repository for provider database operations."""
@@ -106,7 +107,7 @@ class ProviderRepository:
     async def seed_default_providers(self) -> List[Provider]:
         """Seed default providers if not exist."""
         api_key = settings.MSG91_API_KEY
-        logger.info(f"Seeding providers...")
+        logger.info("Seeding providers...")
         
         default_providers = [
             {

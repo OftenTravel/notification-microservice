@@ -1,5 +1,5 @@
 import httpx
-import logging
+import structlog
 import asyncio
 from typing import Dict, Any, Optional, List
 
@@ -10,7 +10,7 @@ from app.core.exceptions import ProviderException, ConfigurationException
 from app.core.config import settings
 
 # Configure logging
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 class MSG91Provider(NotificationProvider):
     """Implementation of MSG91 provider for sending notifications."""
