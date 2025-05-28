@@ -46,9 +46,13 @@ class MSG91Provider(NotificationProvider):
                 - max_retries: Maximum number of retries on failure (default: 3)
                 - base_retry_delay: Base delay for retry backoff in seconds (default: 1.0)
         """
+        # Initialize http_client to None BEFORE calling super().__init__
+        self.http_client = None
         super().__init__(config)
         self.max_retries = config.get('max_retries', 3)
         self.base_retry_delay = config.get('base_retry_delay', 1.0)
+        # Now initialize the provider
+        self.initialize_provider()
         
     def initialize_provider(self) -> None:
         """
@@ -77,22 +81,31 @@ class MSG91Provider(NotificationProvider):
         self.email_from = self.config.get('from_default', f"no-reply@{self.email_domain}")
         self.email_from_name = self.config.get('from_default_name', 'Notification Service')
             
-        # Initialize HTTP client with proper headers
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "authkey": self.api_key  # MSG91 uses "authkey" header
-        }
-        
-        print(f"DEBUG - MSG91 HEADERS: {headers}")
-        
-        self.http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(30.0),
-            headers=headers,
-            verify=False  # Temporarily disable SSL verification
-        )
-        
-        logger.warning("SSL verification disabled for troubleshooting")
+        # Initialize HTTP client with proper headers - ONLY if not already initialized
+        if self.http_client is None:
+            headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "authkey": self.api_key  # MSG91 uses "authkey" header
+            }
+            
+            print(f"DEBUG - MSG91 HEADERS: {headers}")
+            
+            # Use current event loop instead of creating a new one
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                # If no loop exists in this thread, create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+            self.http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(30.0),
+                headers=headers,
+                verify=False  # Temporarily disable SSL verification
+            )
+            
+            logger.warning("SSL verification disabled for troubleshooting")
     
     async def send_sms(self, message: SMSMessage) -> NotificationResponse:
         """
@@ -180,8 +193,19 @@ class MSG91Provider(NotificationProvider):
         
         # Format recipients - check if native format is provided
         if message.recipients:
-            # Use native MSG91 format if provided
-            recipients = message.recipients
+            # Use native MSG91 format if provided - ensure variables are preserved
+            recipients = []
+            for recipient in message.recipients:
+                if isinstance(recipient, dict):
+                    # Already in dict format - use as is
+                    recipients.append(recipient)
+                else:
+                    # Convert to dict format and preserve variables
+                    recipient_dict = {
+                        "to": recipient.get("to", []) if isinstance(recipient, dict) else [],
+                        "variables": recipient.get("variables", {}) if isinstance(recipient, dict) else {}
+                    }
+                    recipients.append(recipient_dict)
         else:
             # Format recipients from simple 'to' field
             recipients = []
@@ -196,27 +220,35 @@ class MSG91Provider(NotificationProvider):
                         ]
                     }
                     
-                    # Add template variables if available
+                    # Add template variables if available in meta_data
                     if message.meta_data:
                         recipient["variables"] = message.meta_data
                     
                     recipients.append(recipient)
         
-        # Add CC and BCC if provided
+        # Add CC and BCC if provided (add to first recipient for now)
         if message.cc and recipients:
-            recipients[0]["cc"] = [{"email": email, "name": ""} for email in message.cc]
+            recipients[0]["cc"] = [{"email": email, "name": email.split('@')[0]} for email in message.cc]
         if message.bcc and recipients:
-            recipients[0]["bcc"] = [{"email": email, "name": ""} for email in message.bcc]
+            recipients[0]["bcc"] = [{"email": email, "name": email.split('@')[0]} for email in message.bcc]
         
-        # Basic payload structure
+        # Basic payload structure following MSG91 API specification
         payload = {
             "recipients": recipients,
             "from": {
-                "email": from_email,
-                "name": from_name
+                "name": from_name,
+                "email": from_email
             },
-            "domain": self.email_domain  # Use the email_domain from config
+            "domain": message.domain or self.email_domain  # Use message domain or config domain
         }
+        
+        # Add reply_to if provided
+        if message.reply_to:
+            payload["reply_to"] = [{"email": email} for email in message.reply_to]
+        
+        # Add attachments if provided
+        if message.attachments:
+            payload["attachments"] = message.attachments
         
         # Get template_id from message, meta_data, or config
         template_id = message.template_id
@@ -514,6 +546,18 @@ class MSG91Provider(NotificationProvider):
         """
         Make HTTP request with exponential backoff retry strategy.
         """
+        # Make sure we have a client
+        if self.http_client is None:
+            self.initialize_provider()
+            
+        # Ensure we're using the current event loop
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running event loop, create a new one for this request
+            current_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(current_loop)
+            
         attempt = 0
         last_exception = None
         
@@ -555,7 +599,12 @@ class MSG91Provider(NotificationProvider):
                 
             except httpx.HTTPStatusError as e:
                 last_exception = e
-                logger.warning(f"MSG91 API HTTP error: {e.response.status_code} - {e.response.text}")
+                error_text = e.response.text if hasattr(e.response, 'text') else str(e)
+                logger.warning(f"MSG91 API HTTP error: {e.response.status_code} - {error_text}")
+                
+                # For debugging: print the full error response
+                print(f"DEBUG - ERROR RESPONSE STATUS: {e.response.status_code}")
+                print(f"DEBUG - ERROR RESPONSE BODY: {error_text}")
                 
                 # Don't retry on client errors (except 429 Too Many Requests)
                 if e.response.status_code < 500 and e.response.status_code != 429:
@@ -574,53 +623,28 @@ class MSG91Provider(NotificationProvider):
         logger.error(error_msg)
         raise ProviderException("MSG91", error_msg)
     
-    def _sanitize_log_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Remove sensitive information before logging.
-        """
-        if not data:
-            return {}
-            
-        # Create a copy to avoid modifying the original
-        sanitized = data.copy()
-        
-        # Hide sensitive fields but show partial values for debugging
-        if "authkey" in sanitized:
-            key = sanitized["authkey"]
-            if len(key) > 8:
-                sanitized["authkey"] = key[:4] + "****" + key[-4:]
-            else:
-                sanitized["authkey"] = "********"
-                
-        return sanitized
-        
-    async def validate_email(self, email: str) -> Dict[str, Any]:
-        """
-        Validate an email address using MSG91's validation API.
-        
-        Args:
-            email: Email address to validate
-            
-        Returns:
-            Dict with validation result:
-                - status: 'deliverable', 'undeliverable', 'risky', or 'unknown'
-                - email: The validated email address
-                - additional fields depending on the status
-        """
-        payload = {
-            "email": email
-        }
-        
-        response = await self._make_request_with_retry(
-            url=self.EMAIL_VALIDATE_API_URL,
-            method="POST",
-            json_data=payload
-        )
-        
-        return response
-    
     async def close(self) -> None:
         """
         Close any resources like HTTP connections.
         """
-        await self.http_client.aclose()
+        if self.http_client:
+            try:
+                await self.http_client.aclose()
+            except Exception as e:
+                logger.warning(f"Error closing HTTP client: {str(e)}")
+            finally:
+                self.http_client = None
+                
+    # Ensure resources are properly released when the object is garbage collected
+    def __del__(self):
+        """Ensure HTTP client is closed when the object is garbage collected."""
+        if hasattr(self, 'http_client') and self.http_client:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(self.close())
+                else:
+                    loop.run_until_complete(self.close())
+            except Exception:
+                # Can't do much in a destructor
+                pass

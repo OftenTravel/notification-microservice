@@ -53,6 +53,7 @@ class WebhookDelivery(Base):
     response_status_code = Column(Integer, nullable=True)
     response_body = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
+    task_id = Column(String(255), nullable=True)  # Celery task ID for revocation
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

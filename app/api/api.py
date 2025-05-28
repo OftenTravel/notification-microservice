@@ -5,6 +5,7 @@ from app.api.v1.msg91 import templates as msg91_templates
 # Add import for the health router
 from app.api.v1.health import router as health_router
 from app.api.v1.stats import router as stats_router
+from app.api.v1.webhooks import router as webhooks_router
 
 api_router = APIRouter()
 
@@ -15,3 +16,5 @@ api_router.include_router(msg91_templates.router, prefix="/msg91/templates", tag
 api_router.include_router(health_router, prefix="/system", tags=["System"])
 # Add the stats router
 api_router.include_router(stats_router, prefix="/stats", tags=["Statistics"])
+# Add the webhooks router
+api_router.include_router(webhooks_router, prefix="/webhooks", tags=["Webhooks"])

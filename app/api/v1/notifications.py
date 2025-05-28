@@ -1,10 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any
 from uuid import UUID
-import uuid
-from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.models.messages import SMSMessage, EmailMessage, WhatsAppMessage
@@ -13,10 +11,9 @@ from app.models.delivery_attempt import DeliveryAttempt
 from app.models.notification import NotificationStatus, NotificationType, Notification
 from app.models.service_user import ServiceUser
 from app.services.notification_service import NotificationService
-from app.core.exceptions import NotificationException, ProviderNotFoundError, ValidationException
+from app.core.exceptions import NotificationException, ProviderNotFoundError
 from app.repositories.provider_repository import ProviderRepository
 from app.repositories.notification_repository import NotificationRepository
-from app.core.celery_app import celery_app
 from app.tasks.notification_tasks import MAX_RETRIES
 from app.core.auth import get_current_service
 
@@ -25,103 +22,6 @@ router = APIRouter()
 # Initialize notification service
 notification_service = NotificationService(default_provider_name="mock")
 
-
-# Unified notification request model
-class UnifiedNotificationRequest(BaseModel):
-    channel: str = Field(..., description="Notification channel: sms, email, or whatsapp")
-    recipient: str = Field(..., description="Recipient (email/phone)")
-    content: str = Field(..., description="Message content")
-    content_type: Optional[str] = Field("text", description="Content type for email: text or html")
-    subject: Optional[str] = Field(None, description="Email subject (required for email)")
-    from_email: Optional[str] = Field(None, description="Sender email (email only)")
-    from_name: Optional[str] = Field(None, description="Sender name (email only)")
-    provider_id: Optional[str] = Field(None, description="Specific provider ID to use")
-    priority: str = Field("normal", description="Priority: low, normal, high, instant")
-    meta_data: Optional[Dict[str, Any]] = Field({}, description="Additional metadata/template variables")
-
-
-# Unified send endpoint
-@router.post("/send", response_model=NotificationResponse)
-async def send_notification(
-    request: UnifiedNotificationRequest,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    service: ServiceUser = Depends(get_current_service)
-):
-    """
-    Send a notification through any supported channel (SMS, Email, WhatsApp).
-    
-    This is a unified endpoint that routes to the appropriate channel based on the 'channel' field.
-    """
-    try:
-        # Route based on channel
-        if request.channel.lower() == "sms":
-            message = SMSMessage(
-                recipient=request.recipient,
-                content=request.content,
-                provider_id=request.provider_id,
-                meta_data=request.meta_data
-            )
-            response = await notification_service.send_sms(
-                message=message,
-                priority=request.priority,
-                db=db,
-                service_id=service.id
-            )
-            
-        elif request.channel.lower() == "email":
-            # Validate email-specific requirements
-            if not request.subject:
-                raise ValidationException("Subject is required for email notifications")
-            
-            # Handle content type
-            body = request.content if request.content_type == "text" else ""
-            html_body = request.content if request.content_type == "html" else None
-            
-            message = EmailMessage(
-                to=[request.recipient],
-                subject=request.subject,
-                body=body,
-                html_body=html_body,
-                from_email=request.from_email,
-                from_name=request.from_name,
-                provider_id=request.provider_id,
-                meta_data=request.meta_data
-            )
-            response = await notification_service.send_email(
-                message=message,
-                priority=request.priority,
-                db=db,
-                service_id=service.id
-            )
-            
-        elif request.channel.lower() == "whatsapp":
-            message = WhatsAppMessage(
-                recipient=request.recipient,
-                content=request.content,
-                provider_id=request.provider_id,
-                meta_data=request.meta_data
-            )
-            response = await notification_service.send_whatsapp(
-                message=message,
-                priority=request.priority,
-                db=db,
-                service_id=service.id
-            )
-            
-        else:
-            raise ValidationException(f"Unsupported channel: {request.channel}")
-        
-        return response
-        
-    except ValidationException as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except ProviderNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except NotificationException as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 
 # SMS endpoint
@@ -177,8 +77,17 @@ async def send_email(
     - **priority** (optional): Priority level (low, normal, high, instant)
     """
     try:
+        # Extract provider_id from message if provided
+        provider_id = None
+        if message.provider_id:
+            try:
+                provider_id = UUID(message.provider_id)
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="Invalid provider_id format")
+        
         response = await notification_service.send_email(
             message=message,
+            provider_id=provider_id,
             priority=priority,
             db=db,
             service_id=service.id
@@ -355,8 +264,13 @@ async def revoke_notification(
     - Update notification status to CANCELLED
     - Attempt to revoke any pending Celery tasks
     - Prevent further retries
+    - Send cancellation webhook
     """
     try:
+        from app.core.celery_app import celery_app
+        from app.models.webhook import WebhookDelivery, WebhookStatus
+        from datetime import datetime
+        
         # Get notification
         notification_repo = NotificationRepository(db)
         notification = await notification_repo.get_by_id(notification_id)
@@ -369,11 +283,40 @@ async def revoke_notification(
             raise HTTPException(status_code=403, detail="Access denied")
         
         # Check if notification can be cancelled
-        if notification.status in [NotificationStatus.DELIVERED, NotificationStatus.CANCELLED]:
+        if notification.status in [NotificationStatus.DELIVERED, NotificationStatus.FAILED, NotificationStatus.CANCELLED]:
             raise HTTPException(
                 status_code=400, 
                 detail=f"Cannot revoke notification in {notification.status.value} status"
             )
+        
+        # Revoke the notification task if it exists
+        if notification.task_id:
+            try:
+                celery_app.control.revoke(notification.task_id, terminate=True)
+            except Exception as e:
+                # Log error but continue with cancellation
+                print(f"Failed to revoke notification task {notification.task_id}: {e}")
+        
+        # Revoke any pending webhook tasks
+        webhook_query = (
+            select(WebhookDelivery)
+            .where(WebhookDelivery.notification_id == notification_id)
+            .where(WebhookDelivery.status.in_([WebhookStatus.PENDING, WebhookStatus.RETRYING]))
+        )
+        webhook_result = await db.execute(webhook_query)
+        webhook_deliveries = webhook_result.scalars().all()
+        
+        for webhook_delivery in webhook_deliveries:
+            if webhook_delivery.task_id:
+                try:
+                    celery_app.control.revoke(webhook_delivery.task_id, terminate=True)
+                except Exception as e:
+                    print(f"Failed to revoke webhook task {webhook_delivery.task_id}: {e}")
+            
+            # Update webhook delivery status
+            webhook_delivery.status = WebhookStatus.FAILED
+            webhook_delivery.error_message = "Notification cancelled"
+            webhook_delivery.updated_at = datetime.utcnow()
         
         # Update notification status to CANCELLED
         await notification_repo.update_status(
@@ -382,9 +325,30 @@ async def revoke_notification(
             error_message="Revoked by user"
         )
         
-        # Note: We don't have the Celery task ID stored in the database
-        # In a production system, you'd want to store the task_id when creating the notification
-        # For now, we'll just update the status which will prevent processing if the task runs
+        # Send cancellation webhook
+        from app.tasks.notification_tasks import send_webhook_immediately
+        from app.models.webhook import Webhook
+        
+        # Get active webhooks for the service
+        webhook_query = (
+            select(Webhook)
+            .where(Webhook.service_id == service.id)
+            .where(Webhook.is_active == True)
+        )
+        webhook_result = await db.execute(webhook_query)
+        webhooks = webhook_result.scalars().all()
+        
+        # Send cancellation webhook to each endpoint
+        for _ in webhooks:
+            await send_webhook_immediately(
+                session=db,
+                notification=notification,
+                event_type="cancelled",
+                attempt_number=0,
+                error_details="Notification cancelled by user"
+            )
+        
+        await db.commit()
         
         return {
             "message": f"Notification {notification_id} has been revoked",

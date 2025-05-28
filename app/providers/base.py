@@ -18,9 +18,9 @@ class NotificationProvider(ABC):
         Args:
             config: Provider-specific configuration
         """
+        self.http_client = None
         self.config = config
         self.provider_name = self.__class__.__name__
-        self.initialize_provider()
 
     def initialize_provider(self) -> None:
         """

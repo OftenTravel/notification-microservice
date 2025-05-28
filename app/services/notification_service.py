@@ -15,7 +15,7 @@ from app.providers.mock_provider import MockProvider
 from app.repositories.notification_repository import NotificationRepository
 from app.models.notification import NotificationType, NotificationStatus, NotificationPriority, Notification
 from app.models.delivery_attempt import DeliveryAttempt
-from app.tasks.notification_tasks import send_notification_task, send_instant_notification
+from app.tasks.notification_tasks import send_notification_task
 
 logger = logging.getLogger(__name__)
 
@@ -179,12 +179,11 @@ class NotificationService:
             raise ValueError(f"Unsupported notification type: {notification_type}")
         
         # Queue notification for delivery based on priority with SIMPLIFIED TASK NAMES
-        task = None
+        # All notifications use the same task, but priority affects queue routing
+        task = send_notification_task.delay(str(notification.id))
         if priority == NotificationPriority.INSTANT:
-            task = send_instant_notification.delay(str(notification.id))
             logger.info(f"Queued instant notification {notification.id}, task ID: {task.id}")
         else:
-            task = send_notification_task.delay(str(notification.id))
             logger.info(f"Queued standard notification {notification.id}, task ID: {task.id}")
             
         # Return response with task info
@@ -325,11 +324,19 @@ class NotificationService:
             db=db
         )
             
+        # Look up the actual provider name for the response
+        provider_name = self.default_provider_name
+        if provider_id:
+            provider_repo = ProviderRepository(db)
+            provider_entity = await provider_repo.get_provider(provider_id)
+            if provider_entity:
+                provider_name = provider_entity.name
+        
         # For API backwards compatibility, return a notification response with notification ID
         return NotificationResponse(
             success=True,
             status=NotificationStatus.QUEUED,
-            provider_name=self.default_provider_name,
+            provider_name=provider_name,
             message_id=None,  # Will be assigned by the worker
             provider_response={
                 "message": "Notification queued for processing",

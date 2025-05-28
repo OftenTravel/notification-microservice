@@ -58,6 +58,7 @@ class Notification(Base):
     delivered_at = Column(DateTime, nullable=True)  # For delivery tracking
     failed_at = Column(DateTime, nullable=True)  # For failure tracking
     external_id = Column(String(255), nullable=True)  # Provider's reference ID
+    task_id = Column(String(255), nullable=True)  # Celery task ID for revocation
 
     # Relationships
     service = relationship("ServiceUser", backref="notifications")

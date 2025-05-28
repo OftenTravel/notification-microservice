@@ -254,24 +254,23 @@ async def create_service_interactive():
             # Example requests
             print(f"\n📝 Example API Requests:")
             print(f"\n1. Send SMS:")
-            print(f'''curl -X POST http://localhost:8000/api/v1/notifications/send \\
+            print(f'''curl -X POST http://localhost:8000/api/v1/notifications/sms \\
   -H "Content-Type: application/json" \\
   -H "X-Service-Id: {service.id}" \\
   -H "X-API-Key: {api_key}" \\
-  -d '{{"channel": "sms", "recipient": "+1234567890", "content": "Hello from {name}!"}}'
+  -d '{{"recipient": "+1234567890", "content": "Hello from {name}!"}}'
             ''')
             
             print(f"\n2. Send Email:")
-            print(f'''curl -X POST http://localhost:8000/api/v1/notifications/send \\
+            print(f'''curl -X POST http://localhost:8000/api/v1/notifications/email \\
   -H "Content-Type: application/json" \\
   -H "X-Service-Id: {service.id}" \\
   -H "X-API-Key: {api_key}" \\
   -d '{{
-    "channel": "email",
-    "recipient": "user@example.com",
+    "to": ["user@example.com"],
     "subject": "Welcome!",
-    "content": "Hello from {name}!",
-    "content_type": "html"
+    "body": "Hello from {name}!",
+    "html_body": "<h1>Hello from {name}!</h1>"
   }}'
             ''')
             

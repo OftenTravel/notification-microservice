@@ -443,56 +443,342 @@ Interactive API documentation is available at:
 
 ## Webhook System
 
+The notification service includes a comprehensive webhook system that sends real-time notifications about delivery status and events. This enables your application to track notification lifecycle and respond to delivery events.
+
+### Overview
+
+Webhooks are HTTP POST requests sent to your configured endpoints whenever specific events occur:
+- **Created**: When a notification is initially created
+- **Retry Scheduled**: When a notification is queued for retry
+- **Retry Attempted**: When a retry attempt is made
+- **Delivered**: When a notification is successfully delivered
+- **Failed**: When all delivery attempts have failed
+- **Cancelled**: When a notification is manually revoked
+
+### Webhook Architecture
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   Notification  │────▶│  Webhook System  │────▶│  Your Endpoint  │
+│     Events      │     │                  │     │                 │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+        │                        │                        │
+        │                        │                        │
+        ▼                        ▼                        ▼
+ ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+ │  Database   │         │   Redis     │         │  Response   │
+ │   Events    │         │   Queue     │         │   Handler   │
+ └─────────────┘         └─────────────┘         └─────────────┘
+```
+
 ### How Webhooks Work
 
-1. **Trigger**: Webhooks are automatically triggered when a notification is successfully delivered
-2. **Payload**: Contains notification details and delivery status
-3. **Retry Logic**:
-   - First 5-6 attempts sent immediately without delay
-   - If all immediate attempts fail, exponential backoff begins
-   - Delays: 1min → 2min → 4min → 8min... up to 3 hours total
-   - 200 OK response marks webhook as acknowledged
+#### 1. Event-Driven Architecture
+- Webhooks are triggered at each stage of the notification lifecycle
+- Events are processed immediately for the first attempt
+- Failed webhooks are queued for retry with exponential backoff
 
-### Webhook Payload Example
+#### 2. Delivery Strategy
+- **Immediate Attempt**: First webhook is sent synchronously when the event occurs
+- **Retry Queue**: Failed webhooks are placed in a separate queue for background processing
+- **Smart Retry Logic**: Different retry behavior based on HTTP response codes
+
+#### 3. Retry Logic
+```
+First Attempt (Immediate)
+    ↓ (if fails)
+Retry Queue → Attempt 1 (1 minute delay)
+    ↓ (if fails)  
+Retry Queue → Attempt 2 (5 minute delay)
+    ↓ (if fails)
+Retry Queue → Attempt 3 (15 minute delay)
+    ↓ (if fails)
+Mark as FAILED
+```
+
+### Webhook Configuration
+
+#### 1. Create Webhooks via API
+
+```http
+POST /api/v1/webhooks
+Content-Type: application/json
+X-Service-Id: your-service-id
+X-API-Key: your-api-key
+
+{
+  "url": "https://your-app.com/webhook",
+  "description": "Production webhook endpoint",
+  "is_active": true
+}
+```
+
+#### 2. List Your Webhooks
+
+```http
+GET /api/v1/webhooks
+X-Service-Id: your-service-id
+X-API-Key: your-api-key
+```
+
+Response:
 ```json
 {
+  "webhooks": [
+    {
+      "id": "webhook-uuid",
+      "url": "https://your-app.com/webhook",
+      "description": "Production webhook endpoint",
+      "is_active": true,
+      "created_at": "2024-01-15T10:30:00",
+      "updated_at": "2024-01-15T10:30:00"
+    }
+  ]
+}
+```
+
+### Webhook Events & Payloads
+
+#### Event: `notification.created`
+Sent when a notification is first created and queued.
+
+```json
+{
+  "event": "created",
   "notification_id": "550e8400-e29b-41d4-a716-446655440000",
+  "service_id": "service-uuid",
+  "type": "sms",
+  "status": "pending",
+  "recipient": "+1234567890",
+  "content": "Your OTP is 123456",
+  "subject": null,
+  "priority": "high",
+  "created_at": "2024-01-15T10:30:00Z",
+  "meta_data": {
+    "user_id": "12345",
+    "campaign": "otp"
+  },
+  "attempt_number": 0,
+  "total_attempts": 0,
+  "max_retries": 3,
+  "webhook_attempt": 1
+}
+```
+
+#### Event: `notification.delivered`
+Sent when a notification is successfully delivered.
+
+```json
+{
+  "event": "delivered",
+  "notification_id": "550e8400-e29b-41d4-a716-446655440000",
+  "service_id": "service-uuid",
   "type": "sms",
   "status": "delivered",
   "recipient": "+1234567890",
   "content": "Your OTP is 123456",
-  "external_id": "msg91-reference-id",
-  "delivered_at": "2024-01-15T10:30:02",
-  "retry_count": 0,
-  "webhook_attempt": 1,
-  "webhook_status": "initial"
+  "subject": null,
+  "priority": "high",
+  "created_at": "2024-01-15T10:30:00Z",
+  "delivered_at": "2024-01-15T10:30:05Z",
+  "external_id": "msg91-message-id",
+  "provider_response": {
+    "status": "delivered",
+    "message_id": "msg91-message-id"
+  },
+  "attempt_number": 1,
+  "total_attempts": 1,
+  "webhook_attempt": 1
+}
+```
+
+#### Event: `notification.failed`
+Sent when all delivery attempts have been exhausted.
+
+```json
+{
+  "event": "failed",
+  "notification_id": "550e8400-e29b-41d4-a716-446655440000",
+  "service_id": "service-uuid",
+  "type": "sms",
+  "status": "failed",
+  "recipient": "+1234567890",
+  "content": "Your OTP is 123456",
+  "subject": null,
+  "priority": "high",
+  "created_at": "2024-01-15T10:30:00Z",
+  "failed_at": "2024-01-15T11:00:00Z",
+  "error_message": "All delivery attempts failed",
+  "attempt_number": 3,
+  "total_attempts": 3,
+  "max_retries": 3,
+  "webhook_attempt": 1
+}
+```
+
+#### Event: `notification.cancelled`
+Sent when a notification is manually revoked/cancelled.
+
+```json
+{
+  "event": "cancelled",
+  "notification_id": "550e8400-e29b-41d4-a716-446655440000",
+  "service_id": "service-uuid",
+  "type": "sms",
+  "status": "cancelled",
+  "recipient": "+1234567890",
+  "content": "Your OTP is 123456",
+  "subject": null,
+  "priority": "high",
+  "created_at": "2024-01-15T10:30:00Z",
+  "cancelled_at": "2024-01-15T10:32:00Z",
+  "cancellation_reason": "Revoked by user",
+  "attempt_number": 0,
+  "webhook_attempt": 1
 }
 ```
 
 ### Webhook Headers
-- `Content-Type: application/json`
-- `X-Webhook-Event: notification.delivered`
-- `X-Notification-Id: {notification_id}`
 
-### Setting Up Webhooks
+Every webhook request includes these headers:
 
-1. Use webhook.site for testing:
-   ```
-   https://webhook.site/unique-id
-   ```
+```http
+Content-Type: application/json
+X-Webhook-Event: notification.delivered
+X-Notification-Id: 550e8400-e29b-41d4-a716-446655440000
+X-Service-Id: service-uuid
+X-Webhook-Attempt: 1
+User-Agent: NotificationService-Webhook/1.0
+```
 
-2. Or create a local webhook endpoint:
-   ```python
-   from fastapi import FastAPI, Request
-   
-   app = FastAPI()
-   
-   @app.post("/webhook")
-   async def receive_webhook(request: Request):
-       payload = await request.json()
-       print(f"Received webhook: {payload}")
-       return {"status": "ok"}  # Return 200 OK to acknowledge
-   ```
+### Webhook Response Handling
+
+#### Success Response (200 OK)
+```json
+{
+  "status": "received",
+  "message": "Webhook processed successfully"
+}
+```
+
+#### Retry Logic Based on Status Codes
+
+| Status Code Range | Action | Retry Behavior |
+|-------------------|--------|----------------|
+| 200-299 | Success | Mark as acknowledged, no retries |
+| 400-499 | Client Error | Stop retrying, mark as failed |
+| 500-599 | Server Error | Retry with exponential backoff |
+| Network Error | Connection Issue | Retry with exponential backoff |
+| Timeout | Request Timeout | Retry with exponential backoff |
+
+### Setting Up Webhook Endpoints
+
+#### 1. Python/FastAPI Webhook Endpoint
+
+```python
+from fastapi import FastAPI, Request, Header
+from typing import Optional
+import json
+
+app = FastAPI()
+
+@app.post("/webhook")
+async def receive_webhook(
+    request: Request,
+    x_webhook_event: Optional[str] = Header(None),
+    x_notification_id: Optional[str] = Header(None),
+    x_webhook_attempt: Optional[int] = Header(None)
+):
+    payload = await request.json()
+    
+    print(f"Received {x_webhook_event} for notification {x_notification_id}")
+    print(f"Attempt: {x_webhook_attempt}")
+    print(f"Payload: {json.dumps(payload, indent=2)}")
+    
+    # Process based on event type
+    event = payload.get('event')
+    
+    if event == 'delivered':
+        print("✅ Notification delivered successfully")
+        # Update your database, send confirmation email, etc.
+        
+    elif event == 'failed':
+        print("❌ Notification delivery failed")
+        # Log error, alert admins, retry with different method, etc.
+        
+    elif event == 'cancelled':
+        print("🚫 Notification was cancelled")
+        # Update UI, clean up resources, etc.
+    
+    # Return 200 OK to acknowledge
+    return {"status": "received", "processed": True}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)
+```
+
+#### 2. Testing with webhook.site
+
+For quick testing without setting up your own endpoint:
+
+1. Go to https://webhook.site
+2. Copy your unique URL (e.g., `https://webhook.site/#!/12345678-1234-1234-1234-123456789012`)
+3. Add this URL as a webhook in your service
+4. Send test notifications and view real-time webhook data
+
+### Webhook Monitoring
+
+#### 1. View Webhook Deliveries
+
+```http
+GET /api/v1/webhooks/{webhook_id}/deliveries
+X-Service-Id: your-service-id
+X-API-Key: your-api-key
+```
+
+Response:
+```json
+{
+  "webhook_id": "webhook-uuid",
+  "deliveries": [
+    {
+      "id": "delivery-uuid",
+      "notification_id": "550e8400-e29b-41d4-a716-446655440000",
+      "status": "acknowledged", 
+      "attempt_count": 1,
+      "last_attempt_at": "2024-01-15T10:30:02Z",
+      "acknowledged_at": "2024-01-15T10:30:02Z",
+      "response_status_code": 200,
+      "response_body": "{\"status\":\"received\"}",
+      "created_at": "2024-01-15T10:30:01Z"
+    }
+  ]
+}
+```
+
+### Best Practices
+
+1. **Endpoint Design**
+   - Always return 200 OK for successful processing
+   - Return 4xx for client errors (don't retry)
+   - Return 5xx for server errors (will retry)
+   - Keep processing time under 30 seconds
+
+2. **Error Handling**
+   - Implement proper error handling in webhook endpoints
+   - Log all webhook events for debugging
+   - Consider idempotency for duplicate deliveries
+
+3. **Security**
+   - Use HTTPS endpoints
+   - Validate incoming payload structure
+   - Implement rate limiting on webhook endpoints
+
+4. **Monitoring**
+   - Monitor webhook delivery success rates
+   - Set up alerts for repeated failures
+   - Track webhook processing performance
 
 ## Provider Management
 

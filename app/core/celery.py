@@ -24,6 +24,12 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     task_time_limit=30 * 60,  # 30 minutes
     task_soft_time_limit=15 * 60,  # 15 minutes
+    task_routes={
+        'send_notification': {'queue': 'notifications'},
+        'retry_webhook': {'queue': 'webhooks'},
+    },
+    task_queue_max_priority=10,
+    worker_prefetch_multiplier=1,
     beat_schedule={
         'check-webhook-deliveries': {
             'task': 'check_webhook_deliveries',

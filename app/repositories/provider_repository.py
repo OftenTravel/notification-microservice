@@ -6,7 +6,6 @@ from sqlalchemy import select, update
 import structlog
 
 from app.models.provider import Provider
-from app.core.config import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -106,24 +105,9 @@ class ProviderRepository:
     
     async def seed_default_providers(self) -> List[Provider]:
         """Seed default providers if not exist."""
-        api_key = settings.MSG91_API_KEY
         logger.info("Seeding providers...")
         
         default_providers = [
-            {
-                "name": "msg91",
-                "supported_types": ["sms", "email", "whatsapp"],
-                "is_active": True,
-                "priority": 1,
-                "config": {
-                    # Use authkey instead of api_key to match what the database expects
-                    "authkey": api_key,
-                    "sender_id": settings.MSG91_SENDER_ID,
-                    "from_default": "notifications@example.com",
-                    "from_default_name": "Notification Service",
-                    "email_domain": "ikmqaf.mailer91.com"
-                }
-            },
             {
                 "name": "mock",
                 "supported_types": ["sms", "email", "whatsapp"],
@@ -144,23 +128,29 @@ class ProviderRepository:
                 provider = await self.create_provider(p_data)
                 providers.append(provider)
             else:
-                # Update existing provider with new config
-                if existing.name == "msg91":
-                    # Ensure the API key is current using the correct field name
-                    updated_config = existing.config.copy() if existing.config else {}
-                    updated_config["authkey"] = settings.MSG91_API_KEY  # Use authkey, not api_key
-                    updated_config["sender_id"] = settings.MSG91_SENDER_ID
-                    
-                    await self.update_provider(
-                        existing.id,
-                        {"config": updated_config}
-                    )
-                    await self.db.refresh(existing)
-                
                 providers.append(existing)
                 
         return providers
         
+    async def get_active_providers(self, notification_type: str) -> List[Provider]:
+        """
+        Get active providers that support the given notification type.
+        
+        Args:
+            notification_type: Type of notification (sms, email, whatsapp)
+            
+        Returns:
+            List of active providers supporting the notification type, ordered by priority
+        """
+        query = (
+            select(Provider)
+            .where(Provider.is_active == True)
+            .where(Provider.supported_types.contains([notification_type]))
+            .order_by(Provider.priority.asc())
+        )
+        result = await self.db.execute(query)
+        return result.scalars().all()
+
     async def update_provider(self, provider_id: UUID, data: Dict[str, Any]) -> Optional[Provider]:
         """
         Update a provider.

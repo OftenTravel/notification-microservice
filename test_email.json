@@ -1,0 +1,28 @@
+{
+  "provider_id": "7081cd11-eb45-4279-9f99-9e44190e41d6",
+  "meta_data": {},
+  "to": ["sarvesh@mcp.travel"],
+  "recipients": [
+    {
+      "to": [
+        {
+          "email": "sarvesh@mcp.travel",
+          "name": "Sarvesh"
+        }
+      ],
+      "variables": {
+        "VAR1": "John",
+        "VAR2": "12345"
+      }
+    }
+  ],
+  "subject": "WEBHOOK SYSTEM WORKING - Provider Fixed",
+  "body": "",
+  "html_body": "Webhook system is fully functional with correct MSG91 provider selection!",
+  "from_email": "contact@84nhii.mailer91.com",
+  "from_name": "Often",
+  "cc": [],
+  "bcc": [],
+  "template_id": "often_onboarding",
+  "domain": "84nhii.mailer91.com"
+}

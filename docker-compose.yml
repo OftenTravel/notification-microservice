@@ -30,8 +30,6 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://notification_user:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/notification_service
-      - MSG91_API_KEY=${MSG91_API_KEY}
-      - MSG91_SENDER_ID=${MSG91_SENDER_ID}
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
@@ -59,8 +57,25 @@ services:
       - DATABASE_URL=postgresql+asyncpg://notification_user:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/notification_service
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - MSG91_API_KEY=${MSG91_API_KEY}
-      - MSG91_SENDER_ID=${MSG91_SENDER_ID}
+      - PYTHONPATH=/app
+      - CELERY_LOG_LEVEL=DEBUG
+
+  celery-webhook-worker:
+    build: .
+    command: celery -A app.core.celery_app worker --loglevel=DEBUG -Q webhooks --hostname=webhook-worker@%h
+    hostname: celery-webhook-worker
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: on-failure
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://notification_user:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/notification_service
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - PYTHONPATH=/app
       - CELERY_LOG_LEVEL=DEBUG
 
