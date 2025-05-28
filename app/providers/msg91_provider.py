@@ -176,24 +176,31 @@ class MSG91Provider(NotificationProvider):
         
         # Validate from email - use message from_email or config's from_default
         from_email = message.from_email or self.email_from
+        from_name = message.from_name or self.email_from_name
         
-        # Format recipients exactly as in the curl example
-        recipients = []
-        for email in message.to:
-            recipient = {
-                "to": [
-                    {
-                        "email": email,
-                        "name": email.split('@')[0]  # Use part before @ as name
+        # Format recipients - check if native format is provided
+        if message.recipients:
+            # Use native MSG91 format if provided
+            recipients = message.recipients
+        else:
+            # Format recipients from simple 'to' field
+            recipients = []
+            if message.to:
+                for email in message.to:
+                    recipient = {
+                        "to": [
+                            {
+                                "email": email,
+                                "name": email.split('@')[0]  # Use part before @ as name
+                            }
+                        ]
                     }
-                ]
-            }
-            
-            # Add template variables if available
-            if message.meta_data:
-                recipient["variables"] = message.meta_data
-            
-            recipients.append(recipient)
+                    
+                    # Add template variables if available
+                    if message.meta_data:
+                        recipient["variables"] = message.meta_data
+                    
+                    recipients.append(recipient)
         
         # Add CC and BCC if provided
         if message.cc and recipients:
@@ -206,18 +213,21 @@ class MSG91Provider(NotificationProvider):
             "recipients": recipients,
             "from": {
                 "email": from_email,
-                "name": self.email_from_name
+                "name": from_name
             },
             "domain": self.email_domain  # Use the email_domain from config
         }
         
-        # Get template_id from message or config
-        template_id = message.meta_data.get('template_id') if message.meta_data else None
-        template_id = template_id or self.config.get('email_template_id')
+        # Get template_id from message, meta_data, or config
+        template_id = message.template_id
+        if not template_id and message.meta_data:
+            template_id = message.meta_data.get('template_id')
+        if not template_id:
+            template_id = self.config.get('email_template_id')
         
         if template_id:
-            # Using template - add template_id
-            payload["template_id"] = template_id
+            # Using template - add template_id as string
+            payload["template_id"] = str(template_id)
         else:
             # Using direct content - add properly formatted body fields
             # According to the error message, we need body.type and body.data
@@ -584,6 +594,31 @@ class MSG91Provider(NotificationProvider):
                 
         return sanitized
         
+    async def validate_email(self, email: str) -> Dict[str, Any]:
+        """
+        Validate an email address using MSG91's validation API.
+        
+        Args:
+            email: Email address to validate
+            
+        Returns:
+            Dict with validation result:
+                - status: 'deliverable', 'undeliverable', 'risky', or 'unknown'
+                - email: The validated email address
+                - additional fields depending on the status
+        """
+        payload = {
+            "email": email
+        }
+        
+        response = await self._make_request_with_retry(
+            url=self.EMAIL_VALIDATE_API_URL,
+            method="POST",
+            json_data=payload
+        )
+        
+        return response
+    
     async def close(self) -> None:
         """
         Close any resources like HTTP connections.

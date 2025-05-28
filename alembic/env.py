@@ -28,7 +28,8 @@ from app.core.database import Base
 from app.models.notification import Notification
 from app.models.provider import Provider
 from app.models.service_user import ServiceUser
-# No webhook import
+from app.models.webhook import Webhook, WebhookDelivery
+from app.models.delivery_attempt import DeliveryAttempt
 
 # add your model's MetaData object here
 # for 'autogenerate' support

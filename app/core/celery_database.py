@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from typing import AsyncGenerator
 from app.core.config import settings
+from redis import asyncio as redis
 
 
 def create_celery_async_engine():
@@ -40,3 +41,15 @@ async def get_celery_db_session() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
             # Close the engine to prevent connection pool issues
             await session.bind.dispose()
+
+
+# Redis client singleton
+_redis_client = None
+
+
+async def get_redis_client():
+    """Get or create Redis client for async operations"""
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = await redis.from_url(settings.CELERY_BROKER_URL)
+    return _redis_client

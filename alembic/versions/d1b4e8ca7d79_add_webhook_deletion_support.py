@@ -31,20 +31,34 @@ def upgrade():
     # - Removed column 'delivered_at' from table 'notifications'
     # - Removed column 'external_id' from table 'notifications'
 
-    # Add service_id column (UUID)
-    op.add_column('notifications', sa.Column('service_id', postgresql.UUID(as_uuid=True), nullable=False))
+    # Check if columns already exist before adding them
+    from sqlalchemy import inspect
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('notifications')]
     
-    # Add new columns
-    op.add_column('notifications', sa.Column('priority', sa.String(length=20), nullable=True))
-    op.add_column('notifications', sa.Column('meta_data', postgresql.JSONB(astext_type=sa.Text()), nullable=True))
-    op.add_column('notifications', sa.Column('provider_response', postgresql.JSONB(astext_type=sa.Text()), nullable=True))
-    op.add_column('notifications', sa.Column('error_message', sa.Text(), nullable=True))
-    op.add_column('notifications', sa.Column('retry_count', sa.Integer(), nullable=True, server_default='0'))
-    op.add_column('notifications', sa.Column('is_instant', sa.Boolean(), nullable=True, server_default='false'))
+    if 'service_id' not in columns:
+        op.add_column('notifications', sa.Column('service_id', postgresql.UUID(as_uuid=True), nullable=False))
     
-    # Remove old columns
-    op.drop_column('notifications', 'delivered_at')
-    op.drop_column('notifications', 'external_id')
+    # Add new columns if they don't exist
+    if 'priority' not in columns:
+        op.add_column('notifications', sa.Column('priority', sa.String(length=20), nullable=True))
+    if 'meta_data' not in columns:
+        op.add_column('notifications', sa.Column('meta_data', postgresql.JSONB(astext_type=sa.Text()), nullable=True))
+    if 'provider_response' not in columns:
+        op.add_column('notifications', sa.Column('provider_response', postgresql.JSONB(astext_type=sa.Text()), nullable=True))
+    if 'error_message' not in columns:
+        op.add_column('notifications', sa.Column('error_message', sa.Text(), nullable=True))
+    if 'retry_count' not in columns:
+        op.add_column('notifications', sa.Column('retry_count', sa.Integer(), nullable=True, server_default='0'))
+    if 'is_instant' not in columns:
+        op.add_column('notifications', sa.Column('is_instant', sa.Boolean(), nullable=True, server_default='false'))
+    
+    # Remove old columns if they exist
+    if 'delivered_at' in columns:
+        op.drop_column('notifications', 'delivered_at')
+    if 'external_id' in columns:
+        op.drop_column('notifications', 'external_id')
     
     # Handle provider_id FK drop
     try:
@@ -59,8 +73,9 @@ def upgrade():
                type_=sa.String(length=50),
                existing_nullable=True)
     
-    # Create FK between service_id and service_users.id
-    op.create_foreign_key('notifications_service_id_fkey', 'notifications', 'service_users', ['service_id'], ['id'])
+    # Create FK between service_id and service_users.id if service_id was added
+    if 'service_id' not in columns:
+        op.create_foreign_key('notifications_service_id_fkey', 'notifications', 'service_users', ['service_id'], ['id'])
 
 
 def downgrade():

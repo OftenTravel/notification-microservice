@@ -52,6 +52,7 @@ class EmailMessage(BaseMessage):
     body: str = Field("", description="Plain text email body")
     html_body: Optional[str] = Field(None, description="HTML version of the email body")
     from_email: Optional[str] = Field(None, description="Sender email address (defaults to provider's default)")
+    from_name: Optional[str] = Field(None, description="Sender display name (defaults to provider's default)")
     cc: List[str] = Field([], description="Carbon copy recipients")
     bcc: List[str] = Field([], description="Blind carbon copy recipients")
     reply_to: Optional[List[Dict[str, str]]] = Field(

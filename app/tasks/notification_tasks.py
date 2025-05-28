@@ -1,6 +1,6 @@
 import uuid
 from app.core.celery_app import celery_app
-from app.core.celery_database import create_celery_session
+from app.core.database import AsyncSessionLocal
 from app.repositories.notification_repository import NotificationRepository
 from app.repositories.provider_repository import ProviderRepository
 from app.models.notification import NotificationStatus
@@ -11,7 +11,7 @@ import asyncio
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 
-# Only use structlog - remove the standard logger completely
+# Use only structlog for logging
 logger = structlog.get_logger(__name__)
 
 # Maximum number of retries for a notification
@@ -29,10 +29,8 @@ def send_notification_task(self, notification_id: str):
         # Run the async function in a new event loop
         return asyncio.run(_send_notification(notification_id, retry_count=self.request.retries))
     except Exception as exc:
-        logger.error("Failed to send notification", 
-                    notification_id=notification_id, 
-                    error=str(exc), 
-                    retry=self.request.retries)
+        # Use string formatting instead of keyword arguments
+        logger.error(f"Failed to send notification {notification_id}: {str(exc)}, retry count: {self.request.retries}")
         
         # Only retry if we haven't exceeded the max retries
         if self.request.retries < MAX_RETRIES:
@@ -40,24 +38,22 @@ def send_notification_task(self, notification_id: str):
             retry_idx = min(self.request.retries, len(RETRY_DELAYS) - 1)
             countdown = RETRY_DELAYS[retry_idx] * 60  # Convert minutes to seconds
             
-            logger.info("Scheduling retry", 
-                       retry_number=self.request.retries + 1, 
-                       countdown=countdown, 
-                       notification_id=notification_id)
+            # Use string formatting for logs
+            logger.info(f"Scheduling retry #{self.request.retries + 1} in {countdown} seconds for notification {notification_id}")
             
             # Retry with calculated delay
             self.retry(exc=exc, countdown=countdown)
         else:
-            logger.warning("Max retries exceeded", notification_id=notification_id)
+            # Use string formatting for logs
+            logger.warning(f"Max retries exceeded for notification {notification_id}")
             # Mark as permanently failed in a separate task
             mark_notification_failed.delay(notification_id, str(exc))
 
 
 async def _send_notification(notification_id: str, retry_count: int = 0):
     """Async function to handle notification sending"""
-    # Fix: Create a new session and engine for each task execution to avoid event loop conflicts
-    CelerySessionLocal = create_celery_session()
-    async with CelerySessionLocal() as session:
+    # Fix: Create a new session for each task execution to avoid concurrent access issues
+    async with AsyncSessionLocal() as session:
         try:
             notification_repo = NotificationRepository(session)
             provider_repo = ProviderRepository(session)
@@ -66,13 +62,13 @@ async def _send_notification(notification_id: str, retry_count: int = 0):
             notification = await notification_repo.get_by_id(uuid.UUID(notification_id))
             
             if not notification:
-                logger.error("Notification not found", notification_id=notification_id)
+                # Use string formatting for logs
+                logger.error(f"Notification not found: {notification_id}")
                 return {"status": "error", "message": f"Notification {notification_id} not found"}
                 
             if notification.status not in [NotificationStatus.PENDING, NotificationStatus.QUEUED]:
-                logger.info("Notification already processed", 
-                           notification_id=notification_id, 
-                           status=notification.status.value)
+                # Use string formatting for logs
+                logger.info(f"Notification {notification_id} already processed with status {notification.status.value}")
                 return {
                     "id": str(notification.id),
                     "status": notification.status.value,
@@ -158,10 +154,23 @@ async def _send_notification(notification_id: str, retry_count: int = 0):
                 elif notification.type.value == "email":
                     from app.models.messages import EmailMessage
                     subject = notification.subject or notification.meta_data.get("subject", "Notification")
+                    
+                    # Extract email fields from meta_data
+                    meta_data = notification.meta_data or {}
                     message = EmailMessage(
-                        to=[notification.recipient],
+                        to=meta_data.get("to", [notification.recipient]),
                         subject=subject,
-                        body=notification.content,
+                        body=meta_data.get("body", notification.content),
+                        html_body=meta_data.get("html_body"),
+                        from_email=meta_data.get("from_email"),
+                        from_name=meta_data.get("from_name"),
+                        template_id=meta_data.get("template_id"),
+                        cc=meta_data.get("cc", []),
+                        bcc=meta_data.get("bcc", []),
+                        reply_to=meta_data.get("reply_to"),
+                        attachments=meta_data.get("attachments", []),
+                        domain=meta_data.get("domain"),
+                        recipients=meta_data.get("recipients"),
                         meta_data=notification.meta_data
                     )
                     response = await provider.send_email(message)
@@ -197,6 +206,12 @@ async def _send_notification(notification_id: str, retry_count: int = 0):
                 # If the provider failed, raise an exception to trigger retry
                 if not response.success:
                     raise Exception(f"Provider failed: {response.error_message}")
+                
+                # If notification was delivered successfully, trigger webhooks
+                if new_status == NotificationStatus.DELIVERED:
+                    from app.tasks.webhook_tasks import send_webhook_notification
+                    send_webhook_notification.delay(str(notification.id))
+                    logger.info("Triggered webhook notifications", notification_id=str(notification.id))
                 
                 return {
                     "id": str(notification.id),
@@ -244,8 +259,7 @@ def mark_notification_failed(notification_id: str, error_message: str):
 async def _mark_notification_failed(notification_id: str, error_message: str):
     """Mark a notification as permanently failed."""
     # Fix: Use a fresh session and engine for each task
-    CelerySessionLocal = create_celery_session()
-    async with CelerySessionLocal() as session:
+    async with AsyncSessionLocal() as session:
         try:
             notification_repo = NotificationRepository(session)
             

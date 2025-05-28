@@ -282,15 +282,46 @@ class NotificationService:
         content = message.html_body or message.body or ""
         recipient = message.to[0] if message.to else "" 
         
+        # Prepare meta_data with all email fields
+        meta_data = message.meta_data or {}
+        # Only include serializable fields
+        email_fields = {
+            "from_email": message.from_email,
+            "from_name": message.from_name,
+            "template_id": message.template_id,
+            "html_body": message.html_body,
+            "body": message.body,
+            "cc": message.cc,
+            "bcc": message.bcc,
+            "reply_to": message.reply_to,
+            "attachments": message.attachments,
+            "domain": message.domain,
+            "to": message.to
+        }
+        # Handle recipients specially - convert to dict format if present
+        if message.recipients:
+            email_fields["recipients"] = []
+            for r in message.recipients:
+                if isinstance(r, dict):
+                    # Already in dict format from the request
+                    email_fields["recipients"].append(r)
+                else:
+                    # Convert Recipient object to dict
+                    email_fields["recipients"].append({
+                        "to": [{"email": getattr(r, 'email', ''), "name": getattr(r, 'name', '')}],
+                        "variables": {}
+                    })
+        meta_data.update(email_fields)
+        
         notification_result = await self.create_notification(
             notification_type=NotificationType.EMAIL,
             recipient=recipient,
             content=content,
             subject=subject,
             service_id=service_id,
-            provider_id=str(provider_id) if provider_id else None,
+            provider_id=str(message.provider_id) if message.provider_id else str(provider_id) if provider_id else None,
             priority=notification_priority,
-            meta_data=message.meta_data or {},
+            meta_data=meta_data,
             db=db
         )
             

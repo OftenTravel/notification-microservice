@@ -152,3 +152,66 @@ async def inline_css_for_email(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to inline CSS: {str(e)}"
         )
+
+
+@router.post("/email/validate")
+async def validate_email_address(
+    email: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Validate an email address using MSG91's validation service.
+    
+    - **email**: Email address to validate
+    
+    Returns:
+    ```json
+    {
+      "status": "success",
+      "data": {
+        "_id": "string",
+        "user_id": 0,
+        "count": 1,
+        "is_bulk": false,
+        "route": 1,
+        "email": "email@example.com",
+        "created_at": "ISO8601 timestamp",
+        "updated_at": "ISO8601 timestamp",
+        "charged": 1,
+        "result": {
+          "valid": true,
+          "result": "deliverable|undeliverable|risky|unknown",
+          "reason": "ACCEPTED_EMAIL|...",
+          "is_disposable": false,
+          "is_free": false,
+          "is_role": false
+        },
+        "summary": {
+          "total": 1,
+          "deliverable": 0,
+          "undeliverable": 0,
+          "risky": 0,
+          "unknown": 0
+        }
+      },
+      "hasError": false,
+      "errors": {}
+    }
+    ```
+    """
+    try:
+        # Get provider from database
+        provider = await get_msg91_provider(db)
+        
+        # Validate email
+        result = await provider.validate_email(email)
+        
+        # Close the provider resources
+        await provider.close()
+        
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to validate email: {str(e)}"
+        )
