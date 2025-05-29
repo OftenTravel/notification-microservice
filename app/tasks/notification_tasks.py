@@ -1,7 +1,8 @@
 import uuid
 from uuid import UUID
 from app.core.celery_app import celery_app
-from app.core.database import AsyncSessionLocal
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from app.core.config import settings
 from app.repositories.notification_repository import NotificationRepository
 from app.repositories.provider_repository import ProviderRepository
 from app.models.notification import NotificationStatus
@@ -116,10 +117,7 @@ def send_notification_task(self, notification_id: str):
     task_id = self.request.id
     
     try:
-        # Set event loop policy to prevent "Future attached to a different loop" errors
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy() if hasattr(asyncio, 'WindowsProactorEventLoopPolicy') else asyncio.DefaultEventLoopPolicy())
-        
-        # Create a new event loop for this task
+        # Create a new event loop for this task to avoid conflicts
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
@@ -128,7 +126,17 @@ def send_notification_task(self, notification_id: str):
             return loop.run_until_complete(_send_notification(notification_id, retry_count=self.request.retries, task_id=task_id))
         finally:
             # Clean up the event loop
-            loop.close()
+            try:
+                # Cancel all pending tasks
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                # Run the loop until all tasks are cancelled
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except:
+                pass
+            finally:
+                loop.close()
     except Exception as exc:
         # Use string formatting instead of keyword arguments
         logger.error(f"Failed to send notification {notification_id}: {str(exc)}, retry count: {self.request.retries}")
@@ -161,30 +169,60 @@ def send_notification_task(self, notification_id: str):
 
 async def _send_retry_scheduled_webhook(notification_id: str, retry_number: int, countdown_seconds: int, error_message: str):
     """Send webhook for retry scheduled event."""
-    async with AsyncSessionLocal() as session:
-        try:
-            notification_repo = NotificationRepository(session)
-            notification = await notification_repo.get_by_id(uuid.UUID(notification_id))
-            
-            if notification:
-                next_retry_at = datetime.utcnow() + timedelta(seconds=countdown_seconds)
-                await send_webhook_immediately(
-                    session,
-                    notification,
-                    "retry_scheduled",
-                    retry_number,
-                    next_retry_at=next_retry_at,
-                    error_details=error_message
-                )
-        except Exception as e:
-            logger.error(f"Error sending retry scheduled webhook: {str(e)}")
+    # Create a new engine for this task
+    task_engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=False,
+        pool_pre_ping=False,
+        pool_size=1,
+        max_overflow=0
+    )
+    
+    # Create a new session factory for this task
+    SessionLocal = async_sessionmaker(task_engine, class_=AsyncSession, expire_on_commit=False)
+    
+    try:
+        async with SessionLocal() as session:
+            try:
+                notification_repo = NotificationRepository(session)
+                notification = await notification_repo.get_by_id(uuid.UUID(notification_id))
+                
+                if notification:
+                    next_retry_at = datetime.utcnow() + timedelta(seconds=countdown_seconds)
+                    await send_webhook_immediately(
+                        session,
+                        notification,
+                        "retry_scheduled",
+                        retry_number,
+                        next_retry_at=next_retry_at,
+                        error_details=error_message
+                    )
+            except Exception as e:
+                logger.error(f"Error sending retry scheduled webhook: {str(e)}")
+    finally:
+        await task_engine.dispose()
 
 
 async def _send_notification(notification_id: str, retry_count: int = 0, task_id: Optional[str] = None):
     """Async function to handle notification sending"""
-    # Fix: Create a new session for each task execution to avoid concurrent access issues
-    async with AsyncSessionLocal() as session:
-        try:
+    # Create a new engine for this task to avoid event loop issues
+    task_engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=False,
+        pool_pre_ping=False,  # Disable pool pre-ping to avoid event loop issues
+        pool_size=1,
+        max_overflow=0,
+        connect_args={
+            "server_settings": {"jit": "off"},
+            "command_timeout": 60,
+        }
+    )
+    
+    # Create a new session factory for this task
+    SessionLocal = async_sessionmaker(task_engine, class_=AsyncSession, expire_on_commit=False)
+    
+    try:
+        async with SessionLocal() as session:
             notification_repo = NotificationRepository(session)
             provider_repo = ProviderRepository(session)
             
@@ -247,15 +285,22 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
                 # Get provider
                 provider_entity = None
                 if notification.provider_id:
+                    logger.info(f"Looking for specific provider: {notification.provider_id}")
                     provider_entity = await provider_repo.get_provider(UUID(notification.provider_id))
-                else:
+                    if not provider_entity:
+                        logger.warning(f"Provider {notification.provider_id} not found, falling back to active providers")
+                
+                # If no specific provider was found or none was specified, get active providers
+                if not provider_entity:
                     # Get active provider for notification type
-                    providers = await provider_repo.get_active_providers(notification.type.value)
+                    notification_type_lower = notification.type.value.lower()
+                    logger.info(f"Looking for providers for notification type: {notification_type_lower}")
+                    providers = await provider_repo.get_active_providers(notification_type_lower)
                     if providers:
                         provider_entity = providers[0]  # Get highest priority provider
                 
                 if not provider_entity:
-                    raise Exception(f"No active provider found for {notification.type.value}")
+                    raise Exception(f"No active provider found for {notification.type.value.lower()}")
                 
                 # Log provider selection with retry count
                 logger.info("Selected provider for notification", 
@@ -323,16 +368,48 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
                 # Clean up provider
                 await provider.close()
                 
-                # Determine new status
-                new_status = NotificationStatus.DELIVERED if response.success else NotificationStatus.FAILED
+                # Determine new status based on MSG91's response
+                # For MSG91, success means the message was accepted, not delivered
+                # Actual delivery status comes through webhooks
+                if response.success:
+                    new_status = NotificationStatus.QUEUED  # MSG91 accepted, waiting for delivery
+                else:
+                    new_status = NotificationStatus.FAILED
+                
+                # Extract MSG91 response data
+                external_id_data = {}
+                if response.provider_response and 'raw_response' in response.provider_response:
+                    raw_response = response.provider_response['raw_response']
+                    if isinstance(raw_response, dict) and 'data' in raw_response:
+                        data = raw_response['data']
+                        # Store all IDs returned by MSG91
+                        external_id_data = {
+                            'message_id': data.get('message_id'),
+                            'unique_id': data.get('unique_id'),
+                            'thread_id': data.get('thread_id'),
+                            'id': data.get('id')  # Some responses have just 'id'
+                        }
+                        # Remove None values
+                        external_id_data = {k: v for k, v in external_id_data.items() if v is not None}
+                
+                # Convert to JSON string for storage
+                import json
+                external_id_json = json.dumps(external_id_data) if external_id_data else None
                 
                 # Update notification with result
                 await notification_repo.update_status(
                     notification.id,
                     status=new_status,
-                    external_id=response.message_id,
+                    external_id=external_id_json,
                     error_message=response.error_message if not response.success else None
                 )
+                
+                # Store the full response in meta_data
+                if not notification.meta_data:
+                    notification.meta_data = {}
+                notification.meta_data['msg91_send_response'] = response.provider_response
+                notification.sent_at = datetime.utcnow()
+                await session.commit()
                 
                 # Update delivery attempt
                 delivery_attempt.external_id = response.message_id
@@ -342,21 +419,10 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
                 delivery_attempt.error_message = response.error_message if not response.success else None
                 await session.commit()
                 
-                # Send appropriate webhook based on status
+                # For MSG91, don't send webhooks immediately since MSG91 will send them
+                # based on actual delivery status
                 if response.success:
-                    # Send delivered webhook
-                    await send_webhook_immediately(
-                        session,
-                        notification,
-                        "delivered",
-                        retry_count + 1,
-                        provider_response={
-                            "status": "success",
-                            "message": "Message delivered successfully",
-                            "provider_message_id": response.message_id
-                        }
-                    )
-                    logger.info("Notification delivered successfully", notification_id=str(notification.id))
+                    logger.info("Notification queued successfully", notification_id=str(notification.id))
                 else:
                     # If the provider failed, raise an exception to trigger retry
                     raise Exception(f"Provider failed: {response.error_message}")
@@ -385,18 +451,13 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
                 
                 # Re-raise for retry mechanism
                 raise Exception(f"Failed to send notification: {str(e)}")
-        except Exception as e:
-            # Add a catch-all exception handler to prevent database connection issues from propagating
-            logger.exception("Unhandled exception in _send_notification", error=str(e))
-            raise
-        finally:
-            # Clean up the session and engine to prevent connection pool issues
-            try:
-                if session.bind:
-                    await session.close()
-                    await session.bind.dispose()
-            except Exception as cleanup_e:
-                logger.warning(f"Error during session cleanup: {str(cleanup_e)}")
+    except Exception as e:
+        # Add a catch-all exception handler to prevent database connection issues from propagating
+        logger.exception("Unhandled exception in _send_notification", error=str(e))
+        raise
+    finally:
+        # Dispose of the engine to properly clean up connections
+        await task_engine.dispose()
 
 
 @celery_app.task(name="mark_notification_failed")
@@ -417,55 +478,61 @@ def mark_notification_failed(notification_id: str, error_message: str):
 
 async def _mark_notification_failed(notification_id: str, error_message: str):
     """Mark a notification as permanently failed."""
-    # Fix: Use a fresh session and engine for each task
-    async with AsyncSessionLocal() as session:
-        try:
-            notification_repo = NotificationRepository(session)
-            
-            # Get notification
-            notification = await notification_repo.get_by_id(uuid.UUID(notification_id))
-            
-            if not notification:
-                logger.error("Notification not found", notification_id=notification_id)
-                return
-                
-            # Update notification status to failed
-            await notification_repo.update_status(
-                notification.id,
-                NotificationStatus.FAILED,
-                error_message=f"Max retries exceeded: {error_message}"
-            )
-            
-            # Create a final delivery attempt record
-            delivery_attempt = DeliveryAttempt(
-                notification_id=notification.id,
-                status=NotificationStatus.FAILED,
-                error_message=f"Max retries exceeded: {error_message}",
-                attempted_at=datetime.utcnow()
-            )
-            session.add(delivery_attempt)
-            await session.commit()
-            
-            # Send failed webhook
-            await send_webhook_immediately(
-                session,
-                notification,
-                "failed",
-                MAX_RETRIES + 1,
-                error_details=f"Max retries exceeded: {error_message}"
-            )
-            
-            logger.info("Notification marked as permanently failed", 
-                       notification_id=notification_id,
-                       error=error_message)
-        except Exception as e:
-            logger.exception("Error in _mark_notification_failed", error=str(e))
-            raise
-        finally:
-            # Clean up the session and engine to prevent connection pool issues
+    # Create a new engine for this task
+    task_engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=False,
+        pool_pre_ping=False,
+        pool_size=1,
+        max_overflow=0
+    )
+    
+    # Create a new session factory for this task
+    SessionLocal = async_sessionmaker(task_engine, class_=AsyncSession, expire_on_commit=False)
+    
+    try:
+        async with SessionLocal() as session:
             try:
-                if session.bind:
-                    await session.close()
-                    await session.bind.dispose()
-            except Exception as cleanup_e:
-                logger.warning(f"Error during session cleanup: {str(cleanup_e)}")
+                notification_repo = NotificationRepository(session)
+                
+                # Get notification
+                notification = await notification_repo.get_by_id(uuid.UUID(notification_id))
+                
+                if not notification:
+                    logger.error("Notification not found", notification_id=notification_id)
+                    return
+                    
+                # Update notification status to failed
+                await notification_repo.update_status(
+                    notification.id,
+                    NotificationStatus.FAILED,
+                    error_message=f"Max retries exceeded: {error_message}"
+                )
+                
+                # Create a final delivery attempt record
+                delivery_attempt = DeliveryAttempt(
+                    notification_id=notification.id,
+                    status=NotificationStatus.FAILED,
+                    error_message=f"Max retries exceeded: {error_message}",
+                    attempted_at=datetime.utcnow()
+                )
+                session.add(delivery_attempt)
+                await session.commit()
+                
+                # Send failed webhook
+                await send_webhook_immediately(
+                    session,
+                    notification,
+                    "failed",
+                    MAX_RETRIES + 1,
+                    error_details=f"Max retries exceeded: {error_message}"
+                )
+                
+                logger.info("Notification marked as permanently failed", 
+                           notification_id=notification_id,
+                           error=error_message)
+            except Exception as e:
+                logger.exception("Error in _mark_notification_failed", error=str(e))
+                raise
+    finally:
+        await task_engine.dispose()

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     # Security
     API_KEY_SALT: str = "change-this-to-a-secure-random-string"
+    MSG91_WEBHOOK_SECRET: Optional[str] = None  # Secret for MSG91 webhook signature verification
 
     # Database
     DATABASE_URL: str

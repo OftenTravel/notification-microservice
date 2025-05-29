@@ -4,11 +4,11 @@
 curl -X 'POST' \
   'http://localhost:8000/api/v1/notifications/email?priority=HIGH' \
   -H 'accept: application/json' \
-  -H 'X-Service-Id: 032fa6b8-03ba-4311-9e83-2a36d6e9a288' \
-  -H 'X-API-Key: 032fa6b803ba43119e832a36d6e9a288-5ed7680755fa4833841735c0c0a79a72' \
+  -H 'X-Service-Id: 6dddbf0e-d6ab-4539-a0a0-9f5c26f81c2b' \
+  -H 'X-API-Key: 6dddbf0ed6ab4539a0a09f5c26f81c2b-ad61a34f6b1a4e01bf3ee5fc4bf0de07' \
   -H 'Content-Type: application/json' \
   -d '{
-  "provider_id": "7081cd11-eb45-4279-9f99-9e44190e41d6",
+  "provider_id": "d0c1aaea-9abd-4fec-80e8-cb19ccd2d816",
   "meta_data": {},
   "to": ["sarvesh@mcp.travel"],
   "recipients": [
