@@ -2,6 +2,12 @@
 
 A robust, scalable notification microservice built with FastAPI, PostgreSQL, Redis, and Celery. It supports multiple notification channels (SMS, Email, WhatsApp) with provider abstraction, authentication, webhook callbacks, and advanced retry mechanisms.
 
+## 📚 Documentation
+
+- **[Architecture Guide](ARCHITECTURE.md)** - Detailed system architecture, components, and design decisions
+- **[Flow Documentation](FLOWS.md)** - Step-by-step flows for all operations
+- **[CLI Guide](CLI_GUIDE.md)** - Comprehensive CLI tools documentation
+
 ## Table of Contents
 - [Overview](#overview)
 - [Architecture](#architecture)
@@ -11,6 +17,7 @@ A robust, scalable notification microservice built with FastAPI, PostgreSQL, Red
 - [Configuration](#configuration)
 - [Database Setup](#database-setup)
 - [Running the Service](#running-the-service)
+- [CLI Tools](#cli-tools)
 - [Authentication](#authentication)
 - [API Documentation](#api-documentation)
 - [Webhook System](#webhook-system)
@@ -34,6 +41,8 @@ This microservice provides a unified API for sending notifications through vario
 
 ## Architecture
 
+The notification microservice uses a modern, scalable architecture with async processing and provider abstraction.
+
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │   Client    │────▶│  FastAPI    │────▶│   Celery    │
@@ -53,6 +62,8 @@ This microservice provides a unified API for sending notifications through vario
                                     │ (MSG91, Mock, etc)  │
                                     └─────────────────────┘
 ```
+
+📖 **[See detailed architecture documentation →](ARCHITECTURE.md)**
 
 ## Features
 
@@ -182,6 +193,8 @@ alembic upgrade head
 
 ### Seeding Data
 
+The service includes interactive CLI tools for setup and configuration. See the [CLI Guide](CLI_GUIDE.md) for detailed documentation.
+
 #### 1. Seed Providers
 
 The service includes a provider seeding tool to add notification providers:
@@ -202,6 +215,22 @@ This creates two default providers:
 
 Create a service account with API credentials:
 
+**Option A: Interactive Service Creation (Recommended)**
+```bash
+# Inside container
+docker-compose exec notification-service python tools/create_service.py
+
+# Or locally
+python tools/create_service.py
+```
+
+This provides:
+- Interactive prompts for service configuration
+- Multiple webhook setup with advanced options
+- Custom headers and event filtering
+- Retry configuration per webhook
+
+**Option B: Quick Mock Service**
 ```bash
 # Inside container
 docker-compose exec notification-service python tools/seed_service.py
@@ -253,6 +282,41 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml build
 # Start services
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
+
+## CLI Tools
+
+The notification microservice includes comprehensive CLI tools for setup, management, and operations.
+
+### Service Management
+
+```bash
+# Interactive service creation with webhooks
+python tools/create_service.py
+
+# List all services
+python tools/create_service.py --list
+
+# Reset API key for a service
+python tools/create_service.py --reset-key
+
+# Quick mock service setup
+python tools/seed_service.py
+```
+
+### Provider Management
+
+```bash
+# Interactive provider setup
+python tools/seed_provider.py
+```
+
+### Key Features:
+- **Interactive Prompts**: User-friendly guided setup
+- **Webhook Configuration**: Advanced webhook options with retry settings
+- **Secure Credentials**: API keys are hashed and shown only once
+- **Service Isolation**: Each service has its own API key and data access
+
+📖 **[See complete CLI documentation →](CLI_GUIDE.md)**
 
 ## Authentication
 
@@ -864,6 +928,54 @@ python tools/seed_service.py --update-webhooks
    - Updates status (DELIVERED/FAILED)
 6. **Webhook Trigger**: On success, webhook notifications queued
 7. **Webhook Delivery**: Webhooks sent with retry logic
+
+### What Happens at Each Step
+
+#### Step 1: API Request
+- Client sends POST request to `/api/v1/notifications/{type}`
+- Headers include Service ID and API Key
+- Request body contains recipient, content, and optional parameters
+
+#### Step 2: Authentication & Validation
+- Service credentials verified against database
+- Rate limiting checked (max 20 failed attempts per 2 hours)
+- Request body validated using Pydantic models
+- Deduplication check performed (30-minute window)
+
+#### Step 3: Database Operations
+- Notification record created with UUID
+- Status set to PENDING
+- Provider selected based on type and priority
+- Task ID stored for tracking
+
+#### Step 4: Task Queuing
+- Task sent to Celery via Redis
+- Priority determines queue:
+  - `instant/high` → high_priority queue
+  - `normal/low` → default queue
+- Task contains notification ID for async processing
+
+#### Step 5: Background Processing
+- Worker fetches notification from database
+- Provider API called (MSG91, etc.)
+- Response processed and status updated
+- Delivery attempts logged
+
+#### Step 6: Webhook Notifications
+- Active webhooks loaded for service
+- Event payload constructed with full details
+- Immediate HTTP POST attempt
+- Failed webhooks queued for retry
+
+#### Step 7: Webhook Retry Logic
+- Failed webhooks retry with exponential backoff
+- Delays: 1 minute → 5 minutes → 15 minutes
+- Status codes determine retry behavior:
+  - 2xx: Success, no retry
+  - 4xx: Client error, no retry
+  - 5xx/timeout: Server error, retry
+
+📖 **[See detailed flow documentation →](FLOWS.md)**
 
 ### Priority Handling
 
