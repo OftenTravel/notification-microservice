@@ -568,3 +568,61 @@ docker-compose exec redis redis-cli DEL "auth_failures:SERVICE_ID"
 6. **Set appropriate priorities** for notifications based on urgency
 7. **Configure webhook retries** based on endpoint reliability
 8. **Regularly backup** service configurations and credentials
+
+## Running Commands in Docker Container
+
+All the CLI commands in this guide can be executed inside the Docker container. Simply prefix each command with `docker-compose exec notification-service`.
+
+### Examples:
+
+**Service Management:**
+```bash
+# Interactive service creation
+docker-compose exec notification-service python tools/create_service.py
+
+# List all services
+docker-compose exec notification-service python tools/create_service.py --list
+
+# Reset API key
+docker-compose exec notification-service python tools/create_service.py --reset-key
+
+# Create mock service
+docker-compose exec notification-service python tools/seed_service.py
+```
+
+**Provider Management:**
+```bash
+# Interactive provider setup
+docker-compose exec notification-service python tools/seed_provider.py
+```
+
+**Database Management:**
+```bash
+# Run migrations
+docker-compose exec notification-service alembic upgrade head
+
+# Check current migration
+docker-compose exec notification-service alembic current
+
+# View migration history
+docker-compose exec notification-service alembic history
+```
+
+**Testing:**
+```bash
+# Run test scripts
+docker-compose exec notification-service python test_msg91_webhook.py
+
+# Access Python shell
+docker-compose exec notification-service python
+
+# Access bash shell
+docker-compose exec notification-service bash
+```
+
+### Quick Reference Format:
+```bash
+docker-compose exec notification-service [Command goes here]
+```
+
+**Note:** Replace `[Command goes here]` with any Python script or shell command from this guide.
