@@ -46,6 +46,12 @@ async def send_webhook_immediately(
         webhooks = result.scalars().all()
         
         if not webhooks:
+            print("\n" + "🔕 NO WEBHOOKS CONFIGURED")
+            print("=" * 80)
+            print(f"Service ID: {notification.service_id}")
+            print(f"Notification ID: {notification.id}")
+            print(f"Event: {event_type.upper()}")
+            print("=" * 80)
             logger.info(f"No active webhooks for service {notification.service_id}")
             return
         
@@ -72,8 +78,19 @@ async def send_webhook_immediately(
             payload["error_details"] = error_details
         
         # Send to each webhook
+        print("\n" + "📡 SENDING SERVICE WEBHOOKS")
+        print("=" * 80)
+        print(f"🎯 Event: {event_type.upper()}")
+        print(f"📧 Notification ID: {str(notification.id)}")
+        print(f"🏢 Service ID: {notification.service_id}")
+        print(f"👤 Recipient: {notification.recipient}")
+        print(f"📊 Attempt: {attempt_number}")
+        print(f"🔗 Webhook Count: {len(webhooks)}")
+        print("-" * 80)
+        
         async with httpx.AsyncClient(timeout=10.0) as client:
-            for webhook in webhooks:
+            for i, webhook in enumerate(webhooks, 1):
+                print(f"📞 Webhook {i}/{len(webhooks)}: {webhook.url}")
                 try:
                     response = await client.post(
                         webhook.url,
@@ -85,7 +102,11 @@ async def send_webhook_immediately(
                         }
                     )
                     
-                    if response.status_code != 200:
+                    if response.status_code == 200:
+                        print(f"   ✅ SUCCESS - Status: {response.status_code}")
+                    else:
+                        print(f"   ❌ FAILED - Status: {response.status_code}")
+                        print(f"   🔄 QUEUING FOR RETRY in 60 seconds")
                         # Queue for retry
                         from app.tasks.webhook_tasks import retry_webhook
                         retry_webhook.apply_async(
@@ -95,6 +116,8 @@ async def send_webhook_immediately(
                         )
                         logger.warning(f"Webhook failed, queued for retry: {response.status_code}")
                 except Exception as e:
+                    print(f"   💥 NETWORK ERROR: {str(e)}")
+                    print(f"   🔄 QUEUING FOR RETRY in 60 seconds")
                     # Network error - queue for retry
                     from app.tasks.webhook_tasks import retry_webhook
                     retry_webhook.apply_async(
@@ -103,6 +126,8 @@ async def send_webhook_immediately(
                         countdown=60
                     )
                     logger.error(f"Webhook error, queued for retry: {str(e)}")
+        
+        print("=" * 80)
                     
     except Exception as e:
         logger.error(f"Error sending webhooks: {str(e)}")

@@ -27,6 +27,7 @@ async def send_test_email():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     payload = {
+        "provider_id": "d0c1aaea-9abd-4fec-80e8-cb19ccd2d816",
         "meta_data": {},
         "to": ["sarvesh@mcp.travel"],
         "recipients": [
@@ -46,7 +47,12 @@ async def send_test_email():
         "subject": f"Welcomojin - {timestamp} - {unique_id}",  # Made unique to avoid duplication
         "body": "",
         "html_body": "string",
-        "template_id": "often_onboarding"
+        "from_email": "contact@84nhii.mailer91.com",
+        "from_name": "Often",
+        "cc": [],
+        "bcc": [],
+        "template_id": "often_onboarding",
+        "domain": "84nhii.mailer91.com"
     }
     
     async with httpx.AsyncClient(timeout=30.0) as client:
