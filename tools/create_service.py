@@ -13,8 +13,7 @@ from typing import List, Optional
 # Add the app directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import select
 from app.models.service_user import ServiceUser
 from app.models.webhook import Webhook
@@ -198,7 +197,7 @@ async def create_service_interactive():
     
     # Create the service
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
     async with async_session() as session:
         try:
@@ -232,8 +231,8 @@ async def create_service_interactive():
                     events=webhook_data["events"],
                     max_retries=webhook_data["max_retries"],
                     timeout_seconds=webhook_data["timeout_seconds"],
-                    created_at=datetime.now(datetime.timezone.utc),
-                    updated_at=datetime.now(datetime.timezone.utc)
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc)
                 )
                 session.add(webhook)
             
@@ -294,7 +293,7 @@ async def create_service_interactive():
 async def list_services():
     """List all existing services."""
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
     async with async_session() as session:
         try:
@@ -312,18 +311,18 @@ async def list_services():
             for service in services:
                 print(f"\n🏷️  {service.name}")
                 print(f"   ID: {service.id}")
-                print(f"   Active: {'✅' if service.is_active else '❌'}")
+                print(f"   Active: {'✅' if bool(service.is_active) else '❌'}")
                 print(f"   Created: {service.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
                 
                 # Get webhook count
                 webhook_query = select(Webhook).where(Webhook.service_id == service.id)
                 webhook_result = await session.execute(webhook_query)
                 webhooks = webhook_result.scalars().all()
-                active_webhooks = [w for w in webhooks if w.is_active]
+                active_webhooks = [w for w in webhooks if bool(w.is_active)]
                 
                 print(f"   Webhooks: {len(active_webhooks)} active / {len(webhooks)} total")
                 
-                if service.description:
+                if service.description is not None:
                     print(f"   Description: {service.description}")
             
             print("\n" + "-" * 80)
@@ -340,7 +339,7 @@ async def reset_api_key():
     
     # List existing services first
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
     async with async_session() as session:
         try:
@@ -389,8 +388,18 @@ async def reset_api_key():
             
             # Import the encryption function
             from app.core.security import encrypt_api_key
-            selected_service.api_key_hash = encrypt_api_key(new_api_key)
-            selected_service.updated_at = datetime.now(timezone.utc)
+            
+            # Update using SQLAlchemy update statement
+            from sqlalchemy import update
+            stmt = (
+                update(ServiceUser)
+                .where(ServiceUser.id == selected_service.id)
+                .values(
+                    api_key_hash=encrypt_api_key(new_api_key),
+                    updated_at=datetime.now(timezone.utc)
+                )
+            )
+            await session.execute(stmt)
             
             await session.commit()
             

@@ -11,7 +11,7 @@ api_router = APIRouter()
 
 # Include v1 endpoints
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
-api_router.include_router(msg91_router, prefix="/msg91", tags=["MSG91"])
+api_router.include_router(msg91_router, prefix="/msg91", tags=["MSG91-Templates"])
 # Add the health router
 api_router.include_router(health_router, prefix="/system", tags=["System"])
 # Add the stats router

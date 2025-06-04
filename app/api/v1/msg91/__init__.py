@@ -6,5 +6,5 @@ from .webhooks import router as webhooks_router
 router = APIRouter()
 
 # Include sub-routers
-router.include_router(templates_router, prefix="/templates", tags=["msg91-templates"])
+router.include_router(templates_router, prefix="/templates")
 router.include_router(webhooks_router, tags=["msg91-webhooks"])
