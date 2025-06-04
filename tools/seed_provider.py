@@ -9,7 +9,7 @@ import asyncio
 import json
 import os
 import sys
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # Add parent directory to path so we can import app modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -18,7 +18,7 @@ from app.core.database import AsyncSessionLocal
 from app.repositories.provider_repository import ProviderRepository
 
 
-async def get_text_input(prompt: str, default: str = None) -> str:
+async def get_text_input(prompt: str, default: Optional[str] = None) -> str:
     """Get text input with optional default value."""
     default_prompt = f" [{default}]" if default else ""
     value = input(f"{prompt}{default_prompt}: ").strip()
@@ -27,7 +27,7 @@ async def get_text_input(prompt: str, default: str = None) -> str:
     return value
 
 
-async def get_bool_input(prompt: str, default: bool = None) -> bool:
+async def get_bool_input(prompt: str, default: Optional[bool] = None) -> bool:
     """Get boolean input with optional default value."""
     default_str = "y/N" if default is False else "Y/n" if default is True else "y/n"
     value = input(f"{prompt} [{default_str}]: ").strip().lower()
@@ -37,7 +37,7 @@ async def get_bool_input(prompt: str, default: bool = None) -> bool:
     return value.startswith('y')
 
 
-async def get_int_input(prompt: str, default: int = None) -> int:
+async def get_int_input(prompt: str, default: Optional[int] = None) -> int:
     """Get integer input with optional default value and validation."""
     while True:
         default_prompt = f" [{default}]" if default is not None else ""
@@ -52,8 +52,8 @@ async def get_int_input(prompt: str, default: int = None) -> int:
             print("Please enter a valid number")
 
 
-async def get_list_input(prompt: str, options: List[str] = None, 
-                        default: List[str] = None) -> List[str]:
+async def get_list_input(prompt: str, options: Optional[List[str]] = None, 
+                        default: Optional[List[str]] = None) -> List[str]:
     """Get list input with optional default value."""
     if options:
         options_str = ", ".join(options)
@@ -68,7 +68,7 @@ async def get_list_input(prompt: str, options: List[str] = None,
     return [item.strip() for item in value_str.split(',') if item.strip()]
 
 
-async def get_json_input(prompt: str, default: Dict = None) -> Dict:
+async def get_json_input(prompt: str, default: Optional[Dict] = None) -> Dict:
     """Get JSON input with validation."""
     default_str = json.dumps(default, indent=2) if default else "{}"
     print(f"{prompt} (enter valid JSON):")
@@ -175,7 +175,7 @@ async def seed_provider():
         repo = ProviderRepository(db)
         
         if existing:
-            await repo.update_provider(existing.id, provider_data)
+            await repo.update_provider(existing.id, provider_data)  # type: ignore
             print(f"Provider '{name}' updated successfully!")
         else:
             provider = await repo.create_provider(provider_data)

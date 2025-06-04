@@ -222,15 +222,15 @@ class MSG91Provider(NotificationProvider):
                     
                     # Add template variables if available in meta_data
                     if message.meta_data:
-                        recipient["variables"] = message.meta_data
+                        recipient["variables"] = message.meta_data  # type: ignore
                     
                     recipients.append(recipient)
         
         # Add CC and BCC if provided (add to first recipient for now)
         if message.cc and recipients:
-            recipients[0]["cc"] = [{"email": email, "name": email.split('@')[0]} for email in message.cc]
+            recipients[0]["cc"] = [{"email": email, "name": email.split('@')[0]} for email in message.cc]  # type: ignore
         if message.bcc and recipients:
-            recipients[0]["bcc"] = [{"email": email, "name": email.split('@')[0]} for email in message.bcc]
+            recipients[0]["bcc"] = [{"email": email, "name": email.split('@')[0]} for email in message.bcc]  # type: ignore
         
         # Basic payload structure following MSG91 API specification
         payload = {
@@ -549,6 +549,9 @@ class MSG91Provider(NotificationProvider):
         # Make sure we have a client
         if self.http_client is None:
             self.initialize_provider()
+            
+        # Ensure http_client is not None before using it
+        assert self.http_client is not None, "HTTP client not initialized"
             
         # Ensure we're using the current event loop
         try:

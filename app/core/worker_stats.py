@@ -12,7 +12,8 @@ class WorkerStats:
     """Persist worker statistics in Redis"""
     
     def __init__(self):
-        self.redis_client = redis.from_url(settings.CELERY_BROKER_URL)
+        # Use synchronous Redis client for stats tracking
+        self.redis_client = redis.Redis.from_url(settings.CELERY_BROKER_URL, decode_responses=True)
         self.stats_key_prefix = "worker:stats:"
     
     def increment_stat(self, worker_name: str, stat_type: str, count: int = 1):
@@ -30,11 +31,17 @@ class WorkerStats:
             "retried": 0,
         }
         
-        for stat_type in stats.keys():
-            key = f"{self.stats_key_prefix}{worker_name}:{stat_type}"
-            data = self.redis_client.hgetall(key)
-            if data:
-                stats[stat_type] = int(data.get(b'count', 0))
+        try:
+            for stat_type in stats.keys():
+                key = f"{self.stats_key_prefix}{worker_name}:{stat_type}"
+                count_str = self.redis_client.hget(key, "count")
+                if count_str is not None and isinstance(count_str, (str, bytes)):
+                    # Handle both string and bytes responses
+                    if isinstance(count_str, bytes):
+                        count_str = count_str.decode('utf-8')
+                    stats[stat_type] = int(count_str)
+        except Exception as e:
+            print(f"Error getting worker stats: {e}")
         
         return stats
     

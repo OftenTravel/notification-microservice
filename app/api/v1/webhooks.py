@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
 
@@ -17,21 +17,21 @@ router = APIRouter()
 
 class WebhookCreate(BaseModel):
     url: HttpUrl
-    description: str = None
+    description: str
     is_active: bool = True
 
 
 class WebhookUpdate(BaseModel):
-    url: HttpUrl = None
-    description: str = None
-    is_active: bool = None
+    url: Optional[HttpUrl] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None 
 
 
 class WebhookResponse(BaseModel):
     id: UUID
     service_id: UUID
     url: str
-    description: str = None
+    description: str 
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -46,9 +46,9 @@ class WebhookDeliveryResponse(BaseModel):
     notification_id: UUID
     status: WebhookStatus
     attempt_count: int
-    last_attempt_at: datetime = None
-    response_status_code: int = None
-    error_message: str = None
+    last_attempt_at: datetime 
+    response_status_code: int 
+    error_message: str 
     created_at: datetime
 
     class Config:
@@ -136,14 +136,15 @@ async def update_webhook(
             detail="Webhook not found"
         )
     
+    # Update webhook fields
     if webhook_update.url is not None:
-        webhook.url = str(webhook_update.url)
+        webhook.url = str(webhook_update.url)  # type: ignore
     if webhook_update.description is not None:
-        webhook.description = webhook_update.description
+        webhook.description = webhook_update.description  # type: ignore
     if webhook_update.is_active is not None:
-        webhook.is_active = webhook_update.is_active
+        webhook.is_active = webhook_update.is_active  # type: ignore
     
-    webhook.updated_at = datetime.utcnow()
+    webhook.updated_at = datetime.utcnow()  # type: ignore
     
     await db.commit()
     await db.refresh(webhook)

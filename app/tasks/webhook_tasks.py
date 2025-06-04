@@ -78,7 +78,7 @@ async def _retry_webhook_async(
         try:
             # Get webhook
             webhook = await db.get(Webhook, webhook_id)
-            if not webhook or not webhook.is_active:
+            if not webhook or not webhook.is_active:  # type: ignore
                 logger.info(f"Webhook {webhook_id} not found or inactive")
                 return
             
@@ -113,17 +113,17 @@ async def _retry_webhook_async(
                 await db.refresh(delivery)
             
             # Store task ID for revocation
-            delivery.task_id = task.request.id
+            delivery.task_id = task.request.id  # type: ignore
             
             # Update attempt count
-            delivery.attempt_count += 1
-            delivery.last_attempt_at = datetime.utcnow()
+            delivery.attempt_count += 1  # type: ignore
+            delivery.last_attempt_at = datetime.utcnow()  # type: ignore
             
             # Send webhook request
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     response = await client.post(
-                        webhook.url,
+                        str(webhook.url),  # type: ignore
                         json=payload,
                         headers={
                             "Content-Type": "application/json",
@@ -134,46 +134,46 @@ async def _retry_webhook_async(
                         }
                     )
                     
-                    delivery.response_status_code = response.status_code
-                    delivery.response_body = response.text[:1000]  # Store first 1000 chars
+                    delivery.response_status_code = response.status_code  # type: ignore
+                    delivery.response_body = response.text[:1000]  # type: ignore  # Store first 1000 chars
                     
                     if response.status_code == 200:
                         # Success
-                        delivery.status = WebhookStatus.ACKNOWLEDGED
-                        delivery.acknowledged_at = datetime.utcnow()
+                        delivery.status = WebhookStatus.ACKNOWLEDGED # type: ignore
+                        delivery.acknowledged_at = datetime.utcnow()  # type: ignore
                         await db.commit()
                         logger.info(f"Webhook delivered successfully for {event_type}")
                         return
                     else:
-                        delivery.error_message = f"HTTP {response.status_code}: {response.text[:200]}"
+                        delivery.error_message = f"HTTP {response.status_code}: {response.text[:200]}"  # type: ignore
                         
             except httpx.TimeoutException:
-                delivery.error_message = "Request timeout"
-                delivery.response_status_code = 0
+                delivery.error_message = "Request timeout"  # type: ignore
+                delivery.response_status_code = 0  # type: ignore
             except httpx.NetworkError as e:
-                delivery.error_message = f"Network error: {str(e)}"
-                delivery.response_status_code = 0
+                delivery.error_message = f"Network error: {str(e)}"  # type: ignore
+                delivery.response_status_code = 0  # type: ignore
             except Exception as e:
-                delivery.error_message = f"Unexpected error: {str(e)}"
-                delivery.response_status_code = 0
+                delivery.error_message = f"Unexpected error: {str(e)}"  # type: ignore
+                delivery.response_status_code = 0  # type: ignore
             
             # Determine if we should retry
-            if should_retry_webhook(delivery.response_status_code, delivery.attempt_count):
-                delivery.status = WebhookStatus.RETRYING
-                retry_delay = get_webhook_retry_delay(delivery.attempt_count)
-                delivery.next_retry_at = datetime.utcnow() + timedelta(seconds=retry_delay)
+            if should_retry_webhook(int(delivery.response_status_code) if delivery.response_status_code is not None else None, int(delivery.attempt_count)):  # type: ignore
+                delivery.status = WebhookStatus.RETRYING  # type: ignore
+                retry_delay = get_webhook_retry_delay(int(delivery.attempt_count))  # type: ignore
+                delivery.next_retry_at = datetime.utcnow() + timedelta(seconds=retry_delay)  # type: ignore
                 await db.commit()
                 
                 logger.info(f"Retrying webhook in {retry_delay} seconds (attempt {delivery.attempt_count})")
                 raise task.retry(countdown=retry_delay)
             else:
                 # Mark as failed
-                if delivery.response_status_code and 400 <= delivery.response_status_code < 500:
-                    delivery.status = WebhookStatus.FAILED
-                    delivery.error_message = f"Client error (4xx): {delivery.error_message}"
+                if delivery.response_status_code is not None and 400 <= delivery.response_status_code < 500:  # type: ignore
+                    delivery.status = WebhookStatus.FAILED  # type: ignore
+                    delivery.error_message = f"Client error (4xx): {delivery.error_message}"  # type: ignore
                 else:
-                    delivery.status = WebhookStatus.FAILED
-                    delivery.error_message = f"Max retries exceeded: {delivery.error_message}"
+                    delivery.status = WebhookStatus.FAILED  # type: ignore
+                    delivery.error_message = f"Max retries exceeded: {delivery.error_message}"  # type: ignore
                 
                 await db.commit()
                 logger.error(f"Webhook delivery failed: {delivery.error_message}")

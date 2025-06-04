@@ -11,14 +11,42 @@ from app.services.notification_service import NotificationService
 async def test_mock_provider():
     print("Testing MockProvider...")
     
-    # Create messages
-    sms = SMSMessage(recipient="+1234567890", content="Test SMS message")
+    # Create messages with required and optional parameters
+    sms = SMSMessage(
+        recipient="+1234567890", 
+        content="Test SMS message",
+        provider_id=None,
+        meta_data={},
+        sender_id=None
+    )
+    
     email = EmailMessage(
         to=["test@example.com"],
-        subject="Test Email",
-        body="This is a test email"
+        subject="Test Email", 
+        body="This is a test email",
+        provider_id=None,
+        meta_data={},
+        recipients=None,
+        html_body=None,
+        from_email=None,
+        from_name=None,
+        cc=[],
+        bcc=[],
+        reply_to=None,
+        attachments=[],
+        template_id=None,
+        domain=None
     )
-    whatsapp = WhatsAppMessage(recipient="+1234567890", content="Test WhatsApp message")
+    
+    whatsapp = WhatsAppMessage(
+        recipient="+1234567890", 
+        content="Test WhatsApp message",
+        provider_id=None,
+        meta_data={},
+        media_url=None,
+        template_id=None,
+        template_params={}
+    )
     
     # Create service with mock provider - FIXED: using proper parameter name
     service = NotificationService(default_provider_name="mock")  # NOT default_provider_id

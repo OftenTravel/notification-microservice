@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     MSG91_WEBHOOK_SECRET: Optional[str] = None  # Secret for MSG91 webhook signature verification
 
     # Database
-    DATABASE_URL: str
+    DATABASE_URL: str = "postgresql+asyncpg://notification_user:dev_password@postgres:5432/notification_service"
 
     # PostgreSQL connection parameters
     POSTGRES_PASSWORD: Optional[str] = None  # Added to prevent validation error

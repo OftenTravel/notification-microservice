@@ -12,7 +12,7 @@ from datetime import datetime
 # Add the app directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select
 from app.models.service_user import ServiceUser
@@ -26,7 +26,7 @@ async def create_mock_service():
     
     # Create async engine
     engine = create_async_engine(settings.DATABASE_URL, echo=True)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, expire_on_commit=False)
     
     async with async_session() as session:
         try:
@@ -120,7 +120,7 @@ async def update_webhook_urls():
     """Update webhook URLs for existing mock_service."""
     
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, expire_on_commit=False)
     
     async with async_session() as session:
         try:
@@ -155,8 +155,8 @@ async def update_webhook_urls():
             for i, webhook in enumerate(webhooks):
                 new_url = input(f"\nEnter new URL for webhook {i+1} (or press Enter to keep current): ")
                 if new_url:
-                    webhook.url = new_url
-                    webhook.updated_at = datetime.utcnow()
+                    webhook.url = new_url  # type: ignore
+                    webhook.updated_at = datetime.utcnow()  # type: ignore
             
             await session.commit()
             print("\n✅ Webhook URLs updated successfully!")

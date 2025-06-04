@@ -91,16 +91,6 @@ class ProviderRepository:
         query = query.order_by(Provider.priority)
         
         result = await self.db.execute(query)
-        return result.scalars().all()
-    
-    async def list_providers(self, active_only: bool = False) -> List[Provider]:
-        """List all providers."""
-        query = select(Provider)
-        if active_only:
-            query = query.where(Provider.is_active == True)
-        query = query.order_by(Provider.priority, Provider.name)
-        
-        result = await self.db.execute(query)
         return list(result.scalars().all())
     
     async def seed_default_providers(self) -> List[Provider]:
@@ -149,7 +139,7 @@ class ProviderRepository:
             .order_by(Provider.priority.asc())
         )
         result = await self.db.execute(query)
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def update_provider(self, provider_id: UUID, data: Dict[str, Any]) -> Optional[Provider]:
         """

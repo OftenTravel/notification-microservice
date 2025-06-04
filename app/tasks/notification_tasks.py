@@ -109,7 +109,7 @@ async def send_webhook_immediately(
                         print(f"   🔄 QUEUING FOR RETRY in 60 seconds")
                         # Queue for retry
                         from app.tasks.webhook_tasks import retry_webhook
-                        retry_webhook.apply_async(
+                        retry_webhook.apply_async(  # type: ignore
                             args=[str(webhook.id), str(notification.id), event_type, payload],
                             queue='webhooks',
                             countdown=60  # 1 min delay
@@ -120,7 +120,7 @@ async def send_webhook_immediately(
                     print(f"   🔄 QUEUING FOR RETRY in 60 seconds")
                     # Network error - queue for retry
                     from app.tasks.webhook_tasks import retry_webhook
-                    retry_webhook.apply_async(
+                    retry_webhook.apply_async(  # type: ignore
                         args=[str(webhook.id), str(notification.id), event_type, payload],
                         queue='webhooks',
                         countdown=60
@@ -189,7 +189,7 @@ def send_notification_task(self, notification_id: str):
             # Use string formatting for logs
             logger.warning(f"Max retries exceeded for notification {notification_id}")
             # Mark as permanently failed in a separate task
-            mark_notification_failed.delay(notification_id, str(exc))
+            mark_notification_failed.delay(notification_id, str(exc))  # type: ignore
 
 
 async def _send_retry_scheduled_webhook(notification_id: str, retry_number: int, countdown_seconds: int, error_message: str):
@@ -269,7 +269,7 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
                 }
             
             # Check if notification was cancelled
-            if notification.status == NotificationStatus.CANCELLED:
+            if notification.status == NotificationStatus.CANCELLED:  # type: ignore
                 logger.info("Notification was cancelled", notification_id=notification_id)
                 return {
                     "id": str(notification.id),
@@ -279,7 +279,7 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
             
             # Store task ID for revocation
             if task_id:
-                notification.task_id = task_id
+                notification.task_id = task_id  # type: ignore
                 await session.commit()
             
             # Send webhook for retry attempt (if this is a retry)
@@ -293,13 +293,13 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
             
             # Update to SENDING status
             await notification_repo.update_status(
-                notification.id, 
+                UUID(str(notification.id)),  # type: ignore
                 NotificationStatus.SENDING
             )
             
             # Create delivery attempt record
             delivery_attempt = DeliveryAttempt(
-                notification_id=notification.id,
+                notification_id=UUID(str(notification.id)),  # type: ignore
                 status=NotificationStatus.SENDING,
                 attempted_at=datetime.utcnow()
             )
@@ -309,9 +309,9 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
             try:
                 # Get provider
                 provider_entity = None
-                if notification.provider_id:
+                if notification.provider_id is not None:  # type: ignore
                     logger.info(f"Looking for specific provider: {notification.provider_id}")
-                    provider_entity = await provider_repo.get_provider(UUID(notification.provider_id))
+                    provider_entity = await provider_repo.get_provider(UUID(str(notification.provider_id)))  # type: ignore
                     if not provider_entity:
                         logger.warning(f"Provider {notification.provider_id} not found, falling back to active providers")
                 
@@ -334,12 +334,12 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
                           retry_attempt=retry_count)
                 
                 # Initialize provider based on type
-                if provider_entity.name == "msg91":
-                    provider = MSG91Provider(provider_entity.config)
+                if provider_entity.name == "msg91":  # type: ignore
+                    provider = MSG91Provider(provider_entity.config)  # type: ignore
                     # Provider is already initialized in __init__
-                elif provider_entity.name == "mock":
+                elif provider_entity.name == "mock":  # type: ignore
                     from app.providers.mock_provider import MockProvider
-                    provider = MockProvider(provider_entity.config)
+                    provider = MockProvider(provider_entity.config)  # type: ignore
                     # Ensure mock provider is initialized if needed
                     if not hasattr(provider, 'http_client'):
                         provider.initialize_provider()
@@ -352,17 +352,17 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
                     sms_message = SMSMessage(
                         recipient=notification.recipient,
                         content=notification.content,
-                        provider_id=str(notification.provider_id) if notification.provider_id else None,
-                        meta_data=notification.meta_data or {}
+                        provider_id=str(notification.provider_id) if notification.provider_id is not None else None,  # type: ignore
+                        meta_data=notification.meta_data or {}  # type: ignore
                     )
                     response = await provider.send_sms(sms_message)
                 elif notification.type.value == "email":
                     from app.models.messages import EmailMessage
                     # Reconstruct the full EmailMessage from stored metadata
-                    meta_data = notification.meta_data or {}
+                    meta_data = notification.meta_data or {}  # type: ignore
                     email_message = EmailMessage(
                         to=meta_data.get("to", [notification.recipient]),
-                        subject=notification.subject or "Notification",
+                        subject=str(notification.subject) if notification.subject is not None else "Notification",  # type: ignore
                         body=meta_data.get("body", notification.content),
                         html_body=meta_data.get("html_body", notification.content),
                         from_email=meta_data.get("from_email"),
@@ -370,12 +370,12 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
                         cc=meta_data.get("cc", []),
                         bcc=meta_data.get("bcc", []),
                         reply_to=meta_data.get("reply_to"),
-                        attachments=meta_data.get("attachments"),
+                        attachments=meta_data.get("attachments", []),  # type: ignore
                         template_id=meta_data.get("template_id"),
                         domain=meta_data.get("domain"),
                         recipients=meta_data.get("recipients"),
-                        provider_id=str(notification.provider_id) if notification.provider_id else None,
-                        meta_data=meta_data
+                        provider_id=str(notification.provider_id) if notification.provider_id is not None else None,  # type: ignore
+                        meta_data=meta_data  # type: ignore
                     )
                     response = await provider.send_email(email_message)
                 elif notification.type.value == "whatsapp":
@@ -383,8 +383,8 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
                     whatsapp_message = WhatsAppMessage(
                         recipient=notification.recipient,
                         content=notification.content,
-                        provider_id=str(notification.provider_id) if notification.provider_id else None,
-                        meta_data=notification.meta_data or {}
+                        provider_id=str(notification.provider_id) if notification.provider_id is not None else None,  # type: ignore
+                        meta_data=notification.meta_data or {}  # type: ignore
                     )
                     response = await provider.send_whatsapp(whatsapp_message)
                 else:
@@ -423,25 +423,25 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
                 
                 # Update notification with result
                 await notification_repo.update_status(
-                    notification.id,
+                    UUID(str(notification.id)),  # type: ignore
                     status=new_status,
                     external_id=external_id_json,
                     error_message=response.error_message if not response.success else None
                 )
                 
                 # Store the full response in meta_data
-                if not notification.meta_data:
-                    notification.meta_data = {}
-                notification.meta_data['msg91_send_response'] = response.provider_response
-                notification.sent_at = datetime.utcnow()
+                if notification.meta_data is None:  # type: ignore
+                    notification.meta_data = {}  # type: ignore
+                notification.meta_data['msg91_send_response'] = response.provider_response  # type: ignore
+                notification.sent_at = datetime.utcnow()  # type: ignore
                 await session.commit()
                 
                 # Update delivery attempt
                 delivery_attempt.external_id = response.message_id
-                delivery_attempt.status = new_status
+                delivery_attempt.status = new_status  # type: ignore
                 delivery_attempt.provider_id = provider_entity.name
-                delivery_attempt.response_data = response.provider_response
-                delivery_attempt.error_message = response.error_message if not response.success else None
+                delivery_attempt.response_data = response.provider_response  # type: ignore
+                delivery_attempt.error_message = response.error_message if not response.success else None  # type: ignore
                 await session.commit()
                 
                 # For MSG91, don't send webhooks immediately since MSG91 will send them
@@ -465,13 +465,13 @@ async def _send_notification(notification_id: str, retry_count: int = 0, task_id
                 
                 # Update notification and delivery attempt status to failed
                 await notification_repo.update_status(
-                    notification.id, 
+                    UUID(str(notification.id)),  # type: ignore
                     NotificationStatus.FAILED,
                     error_message=str(e)
                 )
                 
-                delivery_attempt.status = NotificationStatus.FAILED
-                delivery_attempt.error_message = str(e)
+                delivery_attempt.status = NotificationStatus.FAILED  # type: ignore
+                delivery_attempt.error_message = str(e)  # type: ignore
                 await session.commit()
                 
                 # Re-raise for retry mechanism
@@ -529,14 +529,14 @@ async def _mark_notification_failed(notification_id: str, error_message: str):
                     
                 # Update notification status to failed
                 await notification_repo.update_status(
-                    notification.id,
+                    UUID(str(notification.id)),  # type: ignore
                     NotificationStatus.FAILED,
                     error_message=f"Max retries exceeded: {error_message}"
                 )
                 
                 # Create a final delivery attempt record
                 delivery_attempt = DeliveryAttempt(
-                    notification_id=notification.id,
+                    notification_id=UUID(str(notification.id)),  # type: ignore
                     status=NotificationStatus.FAILED,
                     error_message=f"Max retries exceeded: {error_message}",
                     attempted_at=datetime.utcnow()

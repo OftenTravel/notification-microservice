@@ -42,24 +42,24 @@ class NotificationRepository:
             return None
             
         # Update status and timestamps
-        notification.status = status
-        notification.updated_at = datetime.utcnow()
+        notification.status = status  # type: ignore
+        notification.updated_at = datetime.utcnow()  # type: ignore
         
         # Set status-specific fields
         if status == NotificationStatus.DELIVERED:
-            notification.delivered_at = datetime.utcnow()
+            notification.delivered_at = datetime.utcnow()  # type: ignore
         elif status == NotificationStatus.FAILED:
-            notification.failed_at = datetime.utcnow()
+            notification.failed_at = datetime.utcnow()  # type: ignore
             if error_message:
-                notification.error_message = error_message
+                notification.error_message = error_message  # type: ignore
         elif status == NotificationStatus.SENDING:
-            notification.sent_at = datetime.utcnow()
+            notification.sent_at = datetime.utcnow()  # type: ignore
             
         # Set other fields if provided
         if external_id:
-            notification.external_id = external_id
+            notification.external_id = external_id  # type: ignore
         if provider_response:
-            notification.provider_response = provider_response
+            notification.provider_response = provider_response  # type: ignore
             
         await self.db.commit()
         await self.db.refresh(notification)
@@ -71,7 +71,7 @@ class NotificationRepository:
         if not notification:
             return None
             
-        notification.retry_count += 1
+        notification.retry_count += 1  # type: ignore
         await self.db.commit()
         await self.db.refresh(notification)
         return notification

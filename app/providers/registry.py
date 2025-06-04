@@ -1,4 +1,4 @@
-from typing import Dict, Type, Any
+from typing import Dict, Type, Any, Optional
 from app.providers.base import NotificationProvider
 from app.core.exceptions import ProviderNotFoundError
 
@@ -20,7 +20,7 @@ class ProviderRegistry:
         cls._providers[provider_id] = provider_class
     
     @classmethod
-    def get_provider(cls, provider_id: str, config: Dict[str, Any] = None) -> NotificationProvider:
+    def get_provider(cls, provider_id: str, config: Optional[Dict[str, Any]] = None) -> NotificationProvider:
         """
         Get a provider instance by ID.
         

@@ -2,6 +2,7 @@ import uuid
 from sqlalchemy import Column, String, DateTime, Boolean, Text
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
+from typing import Optional
 from app.core.database import Base
 from app.core.security import encrypt_api_key, verify_api_key
 
@@ -19,7 +20,7 @@ class ServiceUser(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     @classmethod
-    async def create_service(cls, db, name: str, description: str = None):
+    async def create_service(cls, db, name: str, description: Optional[str] = None):
         """Create a new service with a generated API key."""
         service_id = uuid.uuid4()
         raw_api_key = f"{service_id.hex}-{uuid.uuid4().hex}"

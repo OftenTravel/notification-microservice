@@ -47,7 +47,7 @@ async def send_sms(
             message=message,
             priority=priority,
             db=db,
-            service_id=service.id
+            service_id=service.id  # type: ignore
         )
         return response
     except ProviderNotFoundError as e:
@@ -90,7 +90,7 @@ async def send_email(
             provider_id=provider_id,
             priority=priority,
             db=db,
-            service_id=service.id
+            service_id=service.id  # type: ignore
         )
         return response
     except ProviderNotFoundError as e:
@@ -124,7 +124,7 @@ async def send_whatsapp(
             message=message,
             priority=priority,
             db=db,
-            service_id=service.id
+            service_id=service.id  # type: ignore
         )
         return response
     except ProviderNotFoundError as e:
@@ -181,7 +181,7 @@ async def get_notification_details(
             raise HTTPException(status_code=404, detail=f"Notification {notification_id} not found")
         
         # Verify notification belongs to the authenticated service
-        if notification.service_id != service.id:
+        if notification.service_id != service.id:  # type: ignore
             raise HTTPException(status_code=403, detail="Access denied")
         
         # Get delivery attempts
@@ -203,13 +203,13 @@ async def get_notification_details(
         # Try to find active task for this notification
         # Note: This requires task ID to be stored, which we don't have in current implementation
         # For now, we'll indicate if it's likely queued for retry based on status
-        if notification.status == NotificationStatus.FAILED and retries_left > 0:
+        if notification.status == NotificationStatus.FAILED and retries_left > 0:  # type: ignore
             task_status = "RETRY_PENDING"
         
         return {
             "notification": {
                 "id": str(notification.id),
-                "service_id": str(notification.service_id) if notification.service_id else None,
+                "service_id": str(notification.service_id) if notification.service_id is not None else None,  # type: ignore
                 "type": notification.type.value,
                 "status": notification.status.value,
                 "recipient": notification.recipient,
@@ -224,10 +224,10 @@ async def get_notification_details(
                 "provider_response": notification.provider_response,
                 "created_at": notification.created_at.isoformat(),
                 "updated_at": notification.updated_at.isoformat(),
-                "sent_at": notification.sent_at.isoformat() if notification.sent_at else None,
-                "delivered_at": notification.delivered_at.isoformat() if notification.delivered_at else None,
-                "failed_at": notification.failed_at.isoformat() if notification.failed_at else None,
-                "scheduled_at": notification.scheduled_at.isoformat() if notification.scheduled_at else None,
+                "sent_at": notification.sent_at.isoformat() if notification.sent_at is not None else None,  # type: ignore
+                "delivered_at": notification.delivered_at.isoformat() if notification.delivered_at is not None else None,  # type: ignore
+                "failed_at": notification.failed_at.isoformat() if notification.failed_at is not None else None,  # type: ignore
+                "scheduled_at": notification.scheduled_at.isoformat() if notification.scheduled_at is not None else None,  # type: ignore
             },
             "delivery_attempts": [
                 {
@@ -279,7 +279,7 @@ async def revoke_notification(
             raise HTTPException(status_code=404, detail=f"Notification {notification_id} not found")
         
         # Verify notification belongs to the authenticated service
-        if notification.service_id != service.id:
+        if notification.service_id != service.id:  # type: ignore
             raise HTTPException(status_code=403, detail="Access denied")
         
         # Check if notification can be cancelled
@@ -290,7 +290,7 @@ async def revoke_notification(
             )
         
         # Revoke the notification task if it exists
-        if notification.task_id:
+        if notification.task_id is not None:  # type: ignore
             try:
                 celery_app.control.revoke(notification.task_id, terminate=True)
             except Exception as e:
@@ -307,16 +307,16 @@ async def revoke_notification(
         webhook_deliveries = webhook_result.scalars().all()
         
         for webhook_delivery in webhook_deliveries:
-            if webhook_delivery.task_id:
+            if webhook_delivery.task_id is not None:  # type: ignore
                 try:
                     celery_app.control.revoke(webhook_delivery.task_id, terminate=True)
                 except Exception as e:
                     print(f"Failed to revoke webhook task {webhook_delivery.task_id}: {e}")
             
             # Update webhook delivery status
-            webhook_delivery.status = WebhookStatus.FAILED
-            webhook_delivery.error_message = "Notification cancelled"
-            webhook_delivery.updated_at = datetime.utcnow()
+            webhook_delivery.status = WebhookStatus.FAILED  # type: ignore
+            webhook_delivery.error_message = "Notification cancelled"  # type: ignore
+            webhook_delivery.updated_at = datetime.utcnow()  # type: ignore
         
         # Update notification status to CANCELLED
         await notification_repo.update_status(
@@ -426,8 +426,8 @@ async def list_service_notifications(
                     "error_message": notification.error_message,
                     "created_at": notification.created_at.isoformat(),
                     "updated_at": notification.updated_at.isoformat(),
-                    "sent_at": notification.sent_at.isoformat() if notification.sent_at else None,
-                    "delivered_at": notification.delivered_at.isoformat() if notification.delivered_at else None
+                    "sent_at": notification.sent_at.isoformat() if notification.sent_at is not None else None,  # type: ignore
+                    "delivered_at": notification.delivered_at.isoformat() if notification.delivered_at is not None else None  # type: ignore
                 }
                 for notification in notifications
             ]

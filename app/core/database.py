@@ -1,6 +1,5 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 from typing import AsyncGenerator
 
 from app.core.config import settings
@@ -14,7 +13,7 @@ engine = create_async_engine(
     max_overflow=10,  # Maximum overflow connections allowed
 )
 
-AsyncSessionLocal = sessionmaker(
+AsyncSessionLocal = async_sessionmaker(
     engine,
     class_=AsyncSession,
     expire_on_commit=False,

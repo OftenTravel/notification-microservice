@@ -15,18 +15,18 @@ async def get_msg91_provider(db: AsyncSession = Depends(get_db)):
     repo = ProviderRepository(db)
     provider_entity = await repo.get_provider_by_name("msg91")
     
-    if not provider_entity or not provider_entity.config:
+    if not provider_entity or provider_entity.config is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
             detail="MSG91 provider not configured"
         )
     
     # Print the auth key from the provider for debugging
-    auth_key = provider_entity.config.get("authkey")
+    auth_key = provider_entity.config.get("authkey")  # type: ignore
     print(f"PROVIDER DB RECORD - Using MSG91_AUTH_KEY: '{auth_key}'")
     
     # Initialize MSG91 provider with database config
-    provider = MSG91Provider(provider_entity.config)
+    provider = MSG91Provider(provider_entity.config)  # type: ignore
     provider.initialize_provider()
     
     return provider
@@ -88,7 +88,7 @@ async def list_email_templates(
         )
         
         # Close the provider resources
-        if hasattr(provider, 'http_client'):
+        if hasattr(provider, 'http_client') and provider.http_client:
             await provider.http_client.aclose()
             
         return response
@@ -114,7 +114,7 @@ async def get_email_template_version(
         response = await provider.get_template_version_details(version_id)
         
         # Close the provider resources
-        if hasattr(provider, 'http_client'):
+        if hasattr(provider, 'http_client') and provider.http_client:
             await provider.http_client.aclose()
             
         return response
